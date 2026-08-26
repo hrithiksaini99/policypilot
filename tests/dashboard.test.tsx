@@ -1,8 +1,11 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import Home from "@/app/page";
 import IncidentDashboard from "@/components/incident-dashboard";
 import WebMCPStatus from "@/components/webmcp-status";
 import { getIncidentContext } from "@/lib/incident";
+
+afterEach(cleanup);
 
 describe("IncidentDashboard", () => {
   it("shows the seeded incident and all health signals", () => {
@@ -36,5 +39,23 @@ describe("WebMCPStatus", () => {
     await waitFor(() => {
       expect(screen.getByText(/tool registered/i)).toBeInTheDocument();
     });
+  });
+
+  it("announces the unsupported state as a status region", async () => {
+    render(<WebMCPStatus />);
+
+    await screen.findByText(/webmcp unavailable/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/webmcp unavailable/i);
+  });
+});
+
+describe("Home page heading order", () => {
+  it("opens the outline with the incident summary as the level-1 heading", () => {
+    render(<Home />);
+
+    const summaryHeading = screen.getByRole("heading", { level: 1 });
+    expect(summaryHeading).toHaveTextContent(/elevated 5xx errors/i);
+    expect(screen.getAllByRole("heading")[0]).toBe(summaryHeading);
+    expect(screen.getByText("Human authority. Agent speed.")).not.toHaveRole("heading");
   });
 });

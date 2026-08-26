@@ -67,7 +67,7 @@ export default function WebMCPStatus() {
       )}
 
       {viewState === "unsupported" && (
-        <div className="flex flex-col gap-2">
+        <div role="status" className="flex flex-col gap-2">
           <StatusLine viewState={viewState}>WebMCP unavailable</StatusLine>
           <p className="text-xs leading-5 text-zinc-400">
             Open this page in ChatGPT’s in-app browser or a WebMCP-enabled Chrome build.
