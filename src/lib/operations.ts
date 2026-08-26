@@ -57,8 +57,12 @@ export interface PolicyPilotAuditSuccessEntry {
   readonly result: unknown;
 }
 
+export type PolicyPilotErrorCode =
+  | "INVALID_ROLLBACK_INPUT"
+  | "INTERNAL_TOOL_ERROR";
+
 export interface PolicyPilotAuditErrorDetail {
-  readonly code: string;
+  readonly code: PolicyPilotErrorCode;
   readonly message: string;
 }
 
@@ -96,16 +100,17 @@ export interface PolicyPilotSnapshot {
 }
 
 export class PolicyPilotInputError extends Error {
-  readonly code: string;
+  readonly code: PolicyPilotErrorCode;
 
-  constructor(code: string, message: string) {
+  constructor(code: PolicyPilotErrorCode, message: string) {
     super(message);
     this.name = "PolicyPilotInputError";
     this.code = code;
   }
 }
 
-const INVALID_ROLLBACK_INPUT = "INVALID_ROLLBACK_INPUT";
+const INVALID_ROLLBACK_INPUT: PolicyPilotErrorCode = "INVALID_ROLLBACK_INPUT";
+const INTERNAL_TOOL_ERROR: PolicyPilotErrorCode = "INTERNAL_TOOL_ERROR";
 const INVALID_ROLLBACK_MESSAGE =
   "deploymentId must identify the active suspect deployment (DEP-8821).";
 
@@ -211,7 +216,7 @@ export function createPolicyPilotRuntime(
         error instanceof PolicyPilotInputError
           ? { code: error.code, message: error.message }
           : {
-              code: INVALID_ROLLBACK_INPUT,
+              code: INTERNAL_TOOL_ERROR,
               message:
                 error instanceof Error
                   ? error.message
@@ -292,10 +297,13 @@ export function createPolicyPilotRuntime(
     const stored = runTool(
       "propose_rollback",
       input,
-      () => buildRollbackProposal(validateRollbackInput(input)),
+      () => {
+        const proposal = buildRollbackProposal(validateRollbackInput(input));
+        currentProposal = proposal;
+        return proposal;
+      },
       cloneProposal,
     );
-    currentProposal = stored;
     return cloneProposal(stored);
   }
 

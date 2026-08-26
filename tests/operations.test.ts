@@ -9,6 +9,11 @@ import {
 } from "@/lib/operations";
 import { getIncidentContext } from "@/lib/incident";
 
+vi.mock("@/lib/incident", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/incident")>();
+  return { ...actual, getIncidentContext: vi.fn(actual.getIncidentContext) };
+});
+
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 const expectedDeployments: RecentDeployment[] = [
@@ -197,6 +202,34 @@ describe("audit log", () => {
     });
   });
 
+  it("audits unexpected tool failures with a neutral internal code, not a validation code", () => {
+    const runtime = createPolicyPilotRuntime({
+      now: createSequentialClock("2026-08-26T09:10:00.000Z"),
+    });
+    vi.mocked(getIncidentContext).mockImplementationOnce(() => {
+      throw new Error("incident store unavailable");
+    });
+
+    let caught: unknown;
+    try {
+      runtime.readIncident();
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).not.toBeInstanceOf(PolicyPilotInputError);
+    expect((caught as Error).message).toBe("incident store unavailable");
+
+    const [entry] = runtime.getSnapshot().auditLog;
+    if (entry.status !== "error") {
+      throw new Error("Expected an error audit entry.");
+    }
+    expect(entry.toolName).toBe("read_incident");
+    expect(entry.error.code).toBe("INTERNAL_TOOL_ERROR");
+    expect(entry.error.message).toBe("incident store unavailable");
+  });
+
   it("keeps the incident in investigating state and stores a successful proposal on the snapshot", () => {
     const runtime = createPolicyPilotRuntime();
     const proposal = runtime.proposeRollback({ deploymentId: "DEP-8821" });
@@ -234,6 +267,20 @@ describe("subscribers", () => {
 
     expect(() => runtime.proposeRollback(null)).toThrow(PolicyPilotInputError);
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("publishes the new proposal to snapshots read inside subscribers during notification", () => {
+    const runtime = createPolicyPilotRuntime();
+    let observedDuringNotification: unknown;
+
+    runtime.subscribe(() => {
+      observedDuringNotification = runtime.getSnapshot().currentProposal;
+    });
+
+    const proposal = runtime.proposeRollback({ deploymentId: "DEP-8821" });
+
+    expect(observedDuringNotification).toEqual(proposal);
+    expect(runtime.getSnapshot().currentProposal).toEqual(proposal);
   });
 
   it("exposes closure-safe methods that work detached from the runtime object", () => {
