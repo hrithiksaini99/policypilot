@@ -44,7 +44,7 @@ if (!foundSuspectDeployment) {
 const suspectDeployment: RecentDeployment = foundSuspectDeployment;
 
 export type PolicyPilotToolName =
-  | "read_incident"
+  | "get_incident_context"
   | "list_recent_deploys"
   | "propose_rollback";
 
@@ -277,7 +277,7 @@ export function createPolicyPilotRuntime(
 
   function readIncident(): IncidentContext {
     return runTool(
-      "read_incident",
+      "get_incident_context",
       undefined,
       () => getIncidentContext(),
       cloneIncident,

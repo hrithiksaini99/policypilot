@@ -149,7 +149,7 @@ describe("audit log", () => {
     ]);
     expect(snapshot.auditLog.map((entry) => entry.timestamp)).toEqual(stamps);
     expect(snapshot.auditLog.map((entry) => entry.toolName)).toEqual([
-      "read_incident",
+      "get_incident_context",
       "list_recent_deploys",
       "propose_rollback",
     ]);
@@ -225,7 +225,7 @@ describe("audit log", () => {
     if (entry.status !== "error") {
       throw new Error("Expected an error audit entry.");
     }
-    expect(entry.toolName).toBe("read_incident");
+    expect(entry.toolName).toBe("get_incident_context");
     expect(entry.error.code).toBe("INTERNAL_TOOL_ERROR");
     expect(entry.error.message).toBe("incident store unavailable");
   });
