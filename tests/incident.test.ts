@@ -25,4 +25,22 @@ describe("getIncidentContext", () => {
     expect(first).not.toBe(second);
     expect(first.signals).not.toBe(second.signals);
   });
+
+  it("hands out unfrozen copies so consumers can adapt local state", () => {
+    const context = getIncidentContext();
+
+    expect(Object.isFrozen(context)).toBe(false);
+    expect(Object.isFrozen(context.signals)).toBe(false);
+  });
+
+  it("keeps later reads unaffected by mutations made to an earlier copy", () => {
+    const baseline = getIncidentContext();
+    const mutated = getIncidentContext();
+
+    mutated.status = "mitigated";
+    (mutated.signals as string[]).push("injected signal");
+
+    expect(getIncidentContext()).toEqual(baseline);
+    expect(getIncidentContext().signals).toHaveLength(3);
+  });
 });

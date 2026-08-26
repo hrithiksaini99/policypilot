@@ -26,22 +26,22 @@ export default function IncidentDashboard({ incident }: { incident: IncidentCont
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-4 min-[420px]:grid-cols-3 lg:grid-cols-2">
         <div className="min-w-0">
-          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-500">Incident</dt>
+          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-400">Incident</dt>
           <dd className="mt-1 font-mono text-sm font-medium text-zinc-100">{incident.incidentId}</dd>
         </div>
         <div className="min-w-0">
-          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-500">Service</dt>
+          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-400">Service</dt>
           <dd className="mt-1 break-words font-mono text-sm font-medium text-zinc-100">{incident.service}</dd>
         </div>
         <div className="min-w-0">
-          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-500">Status</dt>
+          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-400">Status</dt>
           <dd className="mt-1 flex items-center gap-2 text-sm font-medium capitalize text-zinc-100">
             <span aria-hidden="true" className="size-2 rounded-full bg-amber-400" />
             {incident.status}
           </dd>
         </div>
         <div className="min-w-0 col-span-2 min-[420px]:col-span-3 lg:col-span-1">
-          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-500">Started</dt>
+          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-400">Started</dt>
           <dd className="mt-1 font-mono text-sm font-medium text-zinc-100">
             <time dateTime={incident.startedAt}>{formatStartedAt(incident.startedAt)}</time>
           </dd>
@@ -49,7 +49,7 @@ export default function IncidentDashboard({ incident }: { incident: IncidentCont
       </dl>
 
       <div>
-        <h2 className="font-mono text-xs uppercase tracking-wider text-zinc-500">Health signals</h2>
+        <h2 className="font-mono text-xs uppercase tracking-wider text-zinc-400">Health signals</h2>
         <ul className="mt-3 flex flex-col gap-2">
           {incident.signals.map((signal) => (
             <li
