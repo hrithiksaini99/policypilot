@@ -107,10 +107,3 @@ export function registerPolicyPilotTools(
 
   return entry.pending;
 }
-
-export function registerIncidentContextTool(
-  targetDocument: Document,
-  runtime?: PolicyPilotRuntime,
-): Promise<WebMCPRegistrationState> {
-  return registerPolicyPilotTools(targetDocument, runtime);
-}

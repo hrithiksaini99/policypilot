@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { registerIncidentContextTool } from "@/lib/webmcp";
+import { registerPolicyPilotTools } from "@/lib/webmcp";
 
 type RegistrationViewState = "registering" | "registered" | "unsupported" | "failed";
 
@@ -21,13 +21,15 @@ function StatusLine({ viewState, children }: { viewState: RegistrationViewState;
   );
 }
 
+const TOOL_NAMES = ["get_incident_context", "list_recent_deploys", "propose_rollback"] as const;
+
 export default function WebMCPStatus() {
   const [viewState, setViewState] = useState<RegistrationViewState>("registering");
 
   useEffect(() => {
     let active = true;
 
-    registerIncidentContextTool(document)
+    registerPolicyPilotTools(document)
       .then((result) => {
         if (active) setViewState(result);
       })
@@ -50,18 +52,24 @@ export default function WebMCPStatus() {
 
       {viewState === "registering" && (
         <div role="status">
-          <StatusLine viewState={viewState}>Registering tool…</StatusLine>
+          <StatusLine viewState={viewState}>Registering tools…</StatusLine>
         </div>
       )}
 
       {viewState === "registered" && (
         <div role="status" className="flex flex-col gap-2">
-          <StatusLine viewState={viewState}>Tool registered</StatusLine>
-          <code className="w-fit rounded-md bg-black/40 px-2 py-1 font-mono text-xs text-cyan-300 ring-1 ring-cyan-500/30">
-            get_incident_context
-          </code>
+          <StatusLine viewState={viewState}>3 tools registered</StatusLine>
+          <ul className="flex flex-wrap gap-1.5" aria-label="Registered tools">
+            {TOOL_NAMES.map((name) => (
+              <li key={name}>
+                <code className="w-fit rounded-md bg-black/40 px-2 py-1 font-mono text-xs text-cyan-300 ring-1 ring-cyan-500/30">
+                  {name}
+                </code>
+              </li>
+            ))}
+          </ul>
           <p className="text-xs leading-5 text-zinc-400">
-            Connected agents can now read the live incident context from this page.
+            Connected agents can now read the live incident context, list recent deployments, and prepare rollback proposals from this page.
           </p>
         </div>
       )}
@@ -70,7 +78,7 @@ export default function WebMCPStatus() {
         <div role="status" className="flex flex-col gap-2">
           <StatusLine viewState={viewState}>WebMCP unavailable</StatusLine>
           <p className="text-xs leading-5 text-zinc-400">
-            Open this page in ChatGPT’s in-app browser or a WebMCP-enabled Chrome build.
+            Open this page in ChatGPT&apos;s in-app browser or a WebMCP-enabled Chrome build.
           </p>
         </div>
       )}

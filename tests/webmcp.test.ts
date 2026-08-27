@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { getIncidentContext } from "@/lib/incident";
 import { createPolicyPilotRuntime, PolicyPilotInputError } from "@/lib/operations";
-import {
-  registerIncidentContextTool,
-  registerPolicyPilotTools,
-} from "@/lib/webmcp";
+import { registerPolicyPilotTools } from "@/lib/webmcp";
 
 const GET_INCIDENT_CONTEXT_METADATA = {
   name: "get_incident_context",
@@ -71,7 +68,6 @@ function registeredToolsByName(registerTool: ReturnType<typeof vi.fn>) {
 describe("registerPolicyPilotTools", () => {
   it("resolves unsupported without throwing when WebMCP is unavailable", async () => {
     await expect(registerPolicyPilotTools({} as Document)).resolves.toBe("unsupported");
-    await expect(registerIncidentContextTool({} as Document)).resolves.toBe("unsupported");
   });
 
   it("registers exactly three tools with strict metadata in the required order", async () => {
@@ -304,26 +300,5 @@ describe("registerPolicyPilotTools document isolation", () => {
 
     expect(first.registerTool).toHaveBeenCalledTimes(3);
     expect(second.registerTool).toHaveBeenCalledTimes(3);
-  });
-});
-
-describe("registerIncidentContextTool legacy alias", () => {
-  it("delegates to registerPolicyPilotTools and registers all three tools", async () => {
-    const { targetDocument, registerTool } = createRegisteredDocument();
-
-    await expect(registerIncidentContextTool(targetDocument)).resolves.toBe("registered");
-
-    expect(registerTool).toHaveBeenCalledTimes(3);
-    const names = registerTool.mock.calls.map((call: unknown[]) => (call[0] as { name: string }).name);
-    expect(names).toEqual(["get_incident_context", "list_recent_deploys", "propose_rollback"]);
-  });
-
-  it("shares per-document state with registerPolicyPilotTools", async () => {
-    const { targetDocument, registerTool } = createRegisteredDocument();
-
-    await expect(registerIncidentContextTool(targetDocument)).resolves.toBe("registered");
-    await expect(registerPolicyPilotTools(targetDocument)).resolves.toBe("registered");
-
-    expect(registerTool).toHaveBeenCalledTimes(3);
   });
 });
