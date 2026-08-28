@@ -9,6 +9,8 @@ import {
   type ExecutionReceipt,
 } from "@/lib/operations";
 
+const DEMO_ROLLBACK_ACTION_FINGERPRINT = "fnv1a-32:rollback-inc-1042-dep-8821-checkout-v2-checkout-v1";
+
 function getSnapshot(): PolicyPilotSnapshot {
   return policyPilotRuntime.getSnapshot();
 }
@@ -51,7 +53,7 @@ function ProposalDetails({ proposal }: { proposal: RollbackProposal }) {
       </div>
       <div className="col-span-2">
         <dt className="font-mono text-xs uppercase tracking-wider text-zinc-400">Action fingerprint</dt>
-        <dd className="mt-1 font-mono text-xs text-cyan-300 break-all">{proposal.consequence.includes("fnv1a") ? "" : "fnv1a-32:rollback-inc-1042-dep-8821-checkout-v2-checkout-v1"}</dd>
+        <dd className="mt-1 font-mono text-xs text-cyan-300 break-all">{DEMO_ROLLBACK_ACTION_FINGERPRINT}</dd>
       </div>
     </dl>
   );
