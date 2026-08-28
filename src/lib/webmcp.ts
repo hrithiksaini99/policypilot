@@ -28,6 +28,13 @@ const PROPOSE_ROLLBACK_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
+const EXECUTE_APPROVED_ROLLBACK_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: { approvalId: { type: "string" }, actionHash: { type: "string" } },
+  required: ["approvalId", "actionHash"],
+  additionalProperties: false,
+};
+
 function buildToolDefinitions(runtime: PolicyPilotRuntime) {
   return [
     {
@@ -49,6 +56,14 @@ function buildToolDefinitions(runtime: PolicyPilotRuntime) {
       execute: async () => runtime.listRecentDeploys(),
     },
     {
+      name: "get_policy_state",
+      title: "Get policy state",
+      description: "Read the current PolicyPilot guardrail state and whether rollback execution is available.",
+      inputSchema: EMPTY_OBJECT_SCHEMA,
+      annotations: { readOnlyHint: true, untrustedContentHint: false },
+      execute: async () => runtime.getPolicyState(),
+    },
+    {
       name: "propose_rollback",
       title: "Propose rollback",
       description:
@@ -56,6 +71,14 @@ function buildToolDefinitions(runtime: PolicyPilotRuntime) {
       inputSchema: PROPOSE_ROLLBACK_SCHEMA,
       annotations: { readOnlyHint: false, untrustedContentHint: false },
       execute: async (input: Record<string, unknown>) => runtime.proposeRollback(input),
+    },
+    {
+      name: "execute_approved_rollback",
+      title: "Execute approved rollback",
+      description: "Execute the exact simulated rollback only when a human-approved approval ID and action fingerprint match the pending proposal.",
+      inputSchema: EXECUTE_APPROVED_ROLLBACK_SCHEMA,
+      annotations: { readOnlyHint: false, untrustedContentHint: false },
+      execute: async (input: Record<string, unknown>) => runtime.executeApprovedRollback(input),
     },
   ];
 }

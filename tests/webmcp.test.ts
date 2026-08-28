@@ -21,6 +21,14 @@ const LIST_RECENT_DEPLOYS_METADATA = {
   annotations: { readOnlyHint: true, untrustedContentHint: false },
 };
 
+const GET_POLICY_STATE_METADATA = {
+  name: "get_policy_state",
+  title: "Get policy state",
+  description: "Read the current PolicyPilot guardrail state and whether rollback execution is available.",
+  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  annotations: { readOnlyHint: true, untrustedContentHint: false },
+};
+
 const PROPOSE_ROLLBACK_METADATA = {
   name: "propose_rollback",
   title: "Propose rollback",
@@ -37,10 +45,25 @@ const PROPOSE_ROLLBACK_METADATA = {
   annotations: { readOnlyHint: false, untrustedContentHint: false },
 };
 
+const EXECUTE_APPROVED_ROLLBACK_METADATA = {
+  name: "execute_approved_rollback",
+  title: "Execute approved rollback",
+  description: "Execute the exact simulated rollback only when a human-approved approval ID and action fingerprint match the pending proposal.",
+  inputSchema: {
+    type: "object",
+    properties: { approvalId: { type: "string" }, actionHash: { type: "string" } },
+    required: ["approvalId", "actionHash"],
+    additionalProperties: false,
+  },
+  annotations: { readOnlyHint: false, untrustedContentHint: false },
+};
+
 const EXPECTED_TOOL_METADATA = [
   GET_INCIDENT_CONTEXT_METADATA,
   LIST_RECENT_DEPLOYS_METADATA,
+  GET_POLICY_STATE_METADATA,
   PROPOSE_ROLLBACK_METADATA,
+  EXECUTE_APPROVED_ROLLBACK_METADATA,
 ];
 
 function createRegisteredDocument() {
@@ -70,11 +93,11 @@ describe("registerPolicyPilotTools", () => {
     await expect(registerPolicyPilotTools({} as Document)).resolves.toBe("unsupported");
   });
 
-  it("registers exactly three tools with strict metadata in the required order", async () => {
+  it("registers exactly five tools with strict metadata in the required order", async () => {
     const { targetDocument, registerTool } = createRegisteredDocument();
 
     await expect(registerPolicyPilotTools(targetDocument)).resolves.toBe("registered");
-    expect(registerTool).toHaveBeenCalledTimes(3);
+    expect(registerTool).toHaveBeenCalledTimes(5);
 
     const metadata = registerTool.mock.calls.map((call: unknown[]) => {
       const tool = call[0] as Record<string, unknown>;
@@ -94,6 +117,8 @@ describe("registerPolicyPilotTools execution and audit effects", () => {
       "2026-08-26T12:00:00.000Z",
       "2026-08-26T12:05:00.000Z",
       "2026-08-26T12:10:00.000Z",
+      "2026-08-26T12:15:00.000Z",
+      "2026-08-26T12:20:00.000Z",
     ]);
     const { targetDocument, registerTool } = createRegisteredDocument();
     await registerPolicyPilotTools(targetDocument, runtime);
@@ -108,6 +133,10 @@ describe("registerPolicyPilotTools execution and audit effects", () => {
     expect(deploys).toEqual(runtime.getSnapshot().recentDeployments);
     expect((deploys as { suspect: boolean }[]).some((d) => d.suspect)).toBe(true);
 
+    const policyState = await tools.get("get_policy_state")!.execute({});
+    const expectedPolicyState = runtime.getPolicyState();
+    expect(policyState).toEqual(expectedPolicyState);
+
     const proposal = await tools.get("propose_rollback")!.execute({
       deploymentId: "DEP-8821",
     });
@@ -120,7 +149,7 @@ describe("registerPolicyPilotTools execution and audit effects", () => {
 
     const snapshot = runtime.getSnapshot();
     expect(snapshot.currentProposal).toEqual(proposal);
-    expect(snapshot.auditLog).toHaveLength(3);
+    expect(snapshot.auditLog).toHaveLength(5);
     expect(
       snapshot.auditLog.map(({ toolName, status, timestamp }) => ({
         toolName,
@@ -139,14 +168,26 @@ describe("registerPolicyPilotTools execution and audit effects", () => {
         timestamp: "2026-08-26T12:05:00.000Z",
       },
       {
-        toolName: "propose_rollback",
+        toolName: "get_policy_state",
         status: "success",
         timestamp: "2026-08-26T12:10:00.000Z",
+      },
+      {
+        toolName: "get_policy_state",
+        status: "success",
+        timestamp: "2026-08-26T12:15:00.000Z",
+      },
+      {
+        toolName: "propose_rollback",
+        status: "success",
+        timestamp: "2026-08-26T12:20:00.000Z",
       },
     ]);
     expect(snapshot.auditLog[0]?.input).toBeUndefined();
     expect(snapshot.auditLog[1]?.input).toBeUndefined();
-    expect(snapshot.auditLog[2]?.input).toEqual({ deploymentId: "DEP-8821" });
+    expect(snapshot.auditLog[2]?.input).toBeUndefined();
+    expect(snapshot.auditLog[3]?.input).toBeUndefined();
+    expect(snapshot.auditLog[4]?.input).toEqual({ deploymentId: "DEP-8821" });
   });
 
   it("passes valid propose_rollback input through without coercion", async () => {
@@ -191,6 +232,124 @@ describe("registerPolicyPilotTools execution and audit effects", () => {
     expect(errors[3]?.input).toBe("DEP-8821");
     expect(snapshot.currentProposal).toBeNull();
   });
+
+  it("get_policy_state delegates to runtime and audits", async () => {
+    const runtime = createClockRuntime(["2026-08-26T12:00:00.000Z"]);
+    const { targetDocument, registerTool } = createRegisteredDocument();
+    await registerPolicyPilotTools(targetDocument, runtime);
+
+    const expectedPolicyState = runtime.getSnapshot().policy;
+    const policyState = await registeredToolsByName(registerTool)
+      .get("get_policy_state")!
+      .execute({});
+
+    expect(policyState).toEqual(expectedPolicyState);
+    expect(runtime.getSnapshot().auditLog).toHaveLength(1);
+    expect(runtime.getSnapshot().auditLog[0]).toMatchObject({
+      toolName: "get_policy_state",
+      status: "success",
+      timestamp: "2026-08-26T12:00:00.000Z",
+    });
+  });
+
+  it("execute_approved_rollback rejects before approval and logs error", async () => {
+    const runtime = createClockRuntime([
+      "2026-08-26T12:00:00.000Z",
+      "2026-08-26T12:01:00.000Z",
+    ]);
+    const { targetDocument, registerTool } = createRegisteredDocument();
+    await registerPolicyPilotTools(targetDocument, runtime);
+
+    const execute = registeredToolsByName(registerTool).get("execute_approved_rollback")!;
+
+    await expect(
+      execute.execute({
+        approvalId: "APR-INC-1042-DEP-8821",
+        actionHash: "fnv1a-32:rollback-inc-1042-dep-8821-checkout-v2-checkout-v1",
+      }),
+    ).rejects.toThrow(PolicyPilotInputError);
+
+    const snapshot = runtime.getSnapshot();
+    expect(snapshot.auditLog).toHaveLength(1);
+    expect(snapshot.auditLog[0]).toMatchObject({
+      toolName: "execute_approved_rollback",
+      status: "error",
+      timestamp: "2026-08-26T12:00:00.000Z",
+      error: { code: "APPROVAL_REQUIRED" },
+    });
+  });
+
+  it("execute_approved_rollback succeeds after human approval and returns completed receipt", async () => {
+    const runtime = createClockRuntime([
+      "2026-08-26T12:00:00.000Z",
+      "2026-08-26T12:01:00.000Z",
+      "2026-08-26T12:02:00.000Z",
+    ]);
+    const { targetDocument, registerTool } = createRegisteredDocument();
+    await registerPolicyPilotTools(targetDocument, runtime);
+
+    const propose = registeredToolsByName(registerTool).get("propose_rollback")!;
+    await propose.execute({ deploymentId: "DEP-8821" });
+
+    runtime.approveCurrentProposal();
+
+    const execute = registeredToolsByName(registerTool).get("execute_approved_rollback")!;
+    const receipt = await execute.execute({
+      approvalId: "APR-INC-1042-DEP-8821",
+      actionHash: "fnv1a-32:rollback-inc-1042-dep-8821-checkout-v2-checkout-v1",
+    });
+
+    expect(receipt).toMatchObject({
+      status: "completed",
+      executionId: "EXE-INC-1042-DEP-8821",
+      approvalId: "APR-INC-1042-DEP-8821",
+      actionHash: "fnv1a-32:rollback-inc-1042-dep-8821-checkout-v2-checkout-v1",
+      deploymentId: "DEP-8821",
+    });
+
+    const snapshot = runtime.getSnapshot();
+    expect(snapshot.auditLog).toHaveLength(2);
+    expect(snapshot.auditLog[0]?.toolName).toBe("propose_rollback");
+    expect(snapshot.auditLog[0]?.status).toBe("success");
+    expect(snapshot.auditLog[1]?.toolName).toBe("execute_approved_rollback");
+    expect(snapshot.auditLog[1]?.status).toBe("success");
+    expect(snapshot.incident.status).toBe("mitigated");
+  });
+
+  it("execute_approved_rollback rejects malformed and mismatched inputs without coercion", async () => {
+    const runtime = createClockRuntime([
+      "2026-08-26T12:00:00.000Z",
+      "2026-08-26T12:01:00.000Z",
+      "2026-08-26T12:02:00.000Z",
+      "2026-08-26T12:03:00.000Z",
+      "2026-08-26T12:04:00.000Z",
+    ]);
+    const { targetDocument, registerTool } = createRegisteredDocument();
+    await registerPolicyPilotTools(targetDocument, runtime);
+
+    const propose = registeredToolsByName(registerTool).get("propose_rollback")!;
+    await propose.execute({ deploymentId: "DEP-8821" });
+    runtime.approveCurrentProposal();
+
+    const execute = registeredToolsByName(registerTool).get("execute_approved_rollback")!;
+
+    await expect(execute.execute({ approvalId: "wrong" })).rejects.toThrow(PolicyPilotInputError);
+    await expect(
+      execute.execute({
+        approvalId: "APR-INC-1042-DEP-8821",
+        actionHash: "wrong-hash",
+      }),
+    ).rejects.toThrow(PolicyPilotInputError);
+    await expect(execute.execute({})).rejects.toThrow(PolicyPilotInputError);
+    await expect(execute.execute("string")).rejects.toThrow(PolicyPilotInputError);
+
+    const snapshot = runtime.getSnapshot();
+    const errors = snapshot.auditLog.filter((entry) => entry.status === "error");
+    expect(errors).toHaveLength(4);
+    expect(errors.every((entry) => entry.toolName === "execute_approved_rollback")).toBe(true);
+    expect(errors[0]?.error.code).toBe("INVALID_APPROVAL_INPUT");
+    expect(errors[1]?.error.code).toBe("APPROVAL_MISMATCH");
+  });
 });
 
 describe("registerPolicyPilotTools idempotency", () => {
@@ -200,9 +359,9 @@ describe("registerPolicyPilotTools idempotency", () => {
     await expect(registerPolicyPilotTools(targetDocument)).resolves.toBe("registered");
     await expect(registerPolicyPilotTools(targetDocument)).resolves.toBe("registered");
 
-    expect(registerTool).toHaveBeenCalledTimes(3);
+    expect(registerTool).toHaveBeenCalledTimes(5);
     const names = registerTool.mock.calls.map((call: unknown[]) => (call[0] as { name: string }).name);
-    expect(new Set(names).size).toBe(3);
+    expect(new Set(names).size).toBe(5);
   });
 
   it("shares one in-flight registration across concurrent first calls on the same document", async () => {
@@ -221,7 +380,7 @@ describe("registerPolicyPilotTools idempotency", () => {
     const states = await pending;
 
     expect(states).toEqual(["registered", "registered"]);
-    expect(registerTool).toHaveBeenCalledTimes(3);
+    expect(registerTool).toHaveBeenCalledTimes(5);
   });
 });
 
@@ -247,22 +406,26 @@ describe("registerPolicyPilotTools failure recovery", () => {
       .fn()
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error("registry offline"))
       .mockResolvedValueOnce(undefined);
     const targetDocument = { modelContext: { registerTool } } as unknown as Document;
 
     await expect(registerPolicyPilotTools(targetDocument)).rejects.toThrow("registry offline");
-    expect(registerTool).toHaveBeenCalledTimes(3);
+    expect(registerTool).toHaveBeenCalledTimes(5);
 
     await expect(registerPolicyPilotTools(targetDocument)).resolves.toBe("registered");
 
-    expect(registerTool).toHaveBeenCalledTimes(4);
+    expect(registerTool).toHaveBeenCalledTimes(6);
     const names = registerTool.mock.calls.map((call: unknown[]) => (call[0] as { name: string }).name);
     expect(names).toEqual([
       "get_incident_context",
       "list_recent_deploys",
+      "get_policy_state",
       "propose_rollback",
-      "propose_rollback",
+      "execute_approved_rollback",
+      "execute_approved_rollback",
     ]);
 
     const tools = registeredToolsByName(registerTool);
@@ -279,7 +442,7 @@ describe("registerPolicyPilotTools failure recovery", () => {
     await registerPolicyPilotTools(targetDocument, firstRuntime);
     await expect(registerPolicyPilotTools(targetDocument, secondRuntime)).resolves.toBe("registered");
 
-    expect(registerTool).toHaveBeenCalledTimes(3);
+    expect(registerTool).toHaveBeenCalledTimes(5);
 
     await registeredToolsByName(registerTool)
       .get("get_incident_context")!
@@ -298,7 +461,7 @@ describe("registerPolicyPilotTools document isolation", () => {
     await expect(registerPolicyPilotTools(first.targetDocument)).resolves.toBe("registered");
     await expect(registerPolicyPilotTools(second.targetDocument)).resolves.toBe("registered");
 
-    expect(first.registerTool).toHaveBeenCalledTimes(3);
-    expect(second.registerTool).toHaveBeenCalledTimes(3);
+    expect(first.registerTool).toHaveBeenCalledTimes(5);
+    expect(second.registerTool).toHaveBeenCalledTimes(5);
   });
 });
