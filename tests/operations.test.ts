@@ -4,6 +4,7 @@ import {
   createPolicyPilotRuntime,
   policyPilotRuntime,
   type PolicyPilotAuditSuccessEntry,
+  type PolicyPilotAuditErrorEntry,
   type PolicyPilotSnapshot,
   type RecentDeployment,
 } from "@/lib/operations";
@@ -374,5 +375,215 @@ describe("policyPilotRuntime singleton", () => {
     const snapshot = policyPilotRuntime.getSnapshot();
     expect(Object.isFrozen(snapshot)).toBe(true);
     expect(snapshot.recentDeployments).toEqual(expectedDeployments);
+  });
+});
+
+describe("policy phase and approval/execution runtime", () => {
+  it("starts in read phase with blocked execution availability", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:00:00.000Z" });
+    const state = runtime.getPolicyState();
+
+    expect(state.phase).toBe("read");
+    expect(state.executionAvailability).toBe("blocked");
+    expect(state.inspectionAllowed).toBe(true);
+    expect(state.draftAllowed).toBe(true);
+    expect(state.executionRequiresHumanApproval).toBe(true);
+    expect(state.explanation).toContain("human approval");
+  });
+
+  it("proposeRollback moves policy to approval_required", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:01:00.000Z" });
+    runtime.proposeRollback({ deploymentId: "DEP-8821" });
+    const state = runtime.getPolicyState();
+
+    expect(state.phase).toBe("approval_required");
+    expect(state.executionAvailability).toBe("blocked");
+    expect(state.explanation).toContain("human approval");
+  });
+
+  it("human approval moves policy to approved/available", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:02:00.000Z" });
+    runtime.proposeRollback({ deploymentId: "DEP-8821" });
+    const approval = runtime.approveCurrentProposal();
+    const state = runtime.getPolicyState();
+
+    expect(state.phase).toBe("approved");
+    expect(state.executionAvailability).toBe("available");
+    expect(state.explanation).toContain("awaiting execution");
+    expect(approval.approvalId).toBe("APR-INC-1042-DEP-8821");
+    expect(approval.actionHash).toBe("fnv1a-32:rollback-inc-1042-dep-8821-checkout-v2-checkout-v1");
+    expect(approval.status).toBe("approved");
+  });
+
+  it("rejects execution before human approval and audits the failure", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:00:00.000Z" });
+    runtime.proposeRollback({ deploymentId: "DEP-8821" });
+
+    expect(() => runtime.executeApprovedRollback({
+      approvalId: "APR-INC-1042-DEP-8821",
+      actionHash: "fnv1a-32:rollback-inc-1042-dep-8821-checkout-v2-checkout-v1",
+    })).toThrow(PolicyPilotInputError);
+
+    expect(runtime.getSnapshot().auditLog.at(-1)).toMatchObject({
+      toolName: "execute_approved_rollback",
+      status: "error",
+      error: { code: "APPROVAL_REQUIRED" },
+    });
+  });
+
+  it("binds approval and execution to the exact proposal", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:01:00.000Z" });
+    runtime.proposeRollback({ deploymentId: "DEP-8821" });
+    const approval = runtime.approveCurrentProposal();
+
+    expect(approval).toMatchObject({
+      approvalId: "APR-INC-1042-DEP-8821",
+      actionHash: "fnv1a-32:rollback-inc-1042-dep-8821-checkout-v2-checkout-v1",
+    });
+    expect(() => runtime.executeApprovedRollback({
+      approvalId: approval.approvalId,
+      actionHash: "wrong",
+    })).toThrow(PolicyPilotInputError);
+  });
+
+  it("executes once, updates health, and reset restores the initial state", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:02:00.000Z" });
+    runtime.proposeRollback({ deploymentId: "DEP-8821" });
+    const approval = runtime.approveCurrentProposal();
+    const execution = runtime.executeApprovedRollback({
+      approvalId: approval.approvalId,
+      actionHash: approval.actionHash,
+    });
+
+    expect(execution).toMatchObject({ executionId: "EXE-INC-1042-DEP-8821", status: "completed" });
+    expect(runtime.readIncident()).toMatchObject({ status: "mitigated" });
+    expect(() => runtime.executeApprovedRollback({
+      approvalId: approval.approvalId,
+      actionHash: approval.actionHash,
+    })).toThrow(PolicyPilotInputError);
+    runtime.reset();
+    expect(runtime.getSnapshot()).toMatchObject({
+      policy: { phase: "read", executionAvailability: "blocked" },
+      currentProposal: null,
+      currentApproval: null,
+      currentExecution: null,
+      auditLog: [],
+      incident: { status: "investigating" },
+    });
+  });
+
+  it("rejects malformed approval input and audits the failure", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:03:00.000Z" });
+
+    expect(() => runtime.executeApprovedRollback({})).toThrow(PolicyPilotInputError);
+    expect(() => runtime.executeApprovedRollback({ approvalId: "APR-INC-1042-DEP-8821" })).toThrow(PolicyPilotInputError);
+    expect(() => runtime.executeApprovedRollback({ actionHash: "fnv1a-32:..." })).toThrow(PolicyPilotInputError);
+    expect(() => runtime.executeApprovedRollback({ approvalId: "APR-INC-1042-DEP-8821", actionHash: "fnv1a-32:...", extra: true })).toThrow(PolicyPilotInputError);
+
+    const snapshot = runtime.getSnapshot();
+    const errorEntries = snapshot.auditLog.filter(
+      (e): e is PolicyPilotAuditErrorEntry => e.toolName === "execute_approved_rollback" && e.status === "error"
+    );
+    expect(errorEntries).toHaveLength(4);
+    for (const entry of errorEntries) {
+      expect(entry.error.code).toBe("INVALID_APPROVAL_INPUT");
+    }
+  });
+
+  it("rejects execution with no pending proposal and audits the failure", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:04:00.000Z" });
+
+    expect(() => runtime.executeApprovedRollback({
+      approvalId: "APR-INC-1042-DEP-8821",
+      actionHash: "fnv1a-32:rollback-inc-1042-dep-8821-checkout-v2-checkout-v1",
+    })).toThrow(PolicyPilotInputError);
+
+    expect(runtime.getSnapshot().auditLog.at(-1)).toMatchObject({
+      toolName: "execute_approved_rollback",
+      status: "error",
+      error: { code: "APPROVAL_REQUIRED" },
+    });
+  });
+
+  it("rejects mismatched approval ID and audits the failure", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:05:00.000Z" });
+    runtime.proposeRollback({ deploymentId: "DEP-8821" });
+    runtime.approveCurrentProposal();
+
+    expect(() => runtime.executeApprovedRollback({
+      approvalId: "APR-WRONG",
+      actionHash: "fnv1a-32:rollback-inc-1042-dep-8821-checkout-v2-checkout-v1",
+    })).toThrow(PolicyPilotInputError);
+
+    expect(runtime.getSnapshot().auditLog.at(-1)).toMatchObject({
+      toolName: "execute_approved_rollback",
+      status: "error",
+      error: { code: "APPROVAL_MISMATCH" },
+    });
+  });
+
+  it("rejects mismatched action hash and audits the failure", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:06:00.000Z" });
+    runtime.proposeRollback({ deploymentId: "DEP-8821" });
+    const approval = runtime.approveCurrentProposal();
+
+    expect(() => runtime.executeApprovedRollback({
+      approvalId: approval.approvalId,
+      actionHash: "fnv1a-32:wrong-hash",
+    })).toThrow(PolicyPilotInputError);
+
+    expect(runtime.getSnapshot().auditLog.at(-1)).toMatchObject({
+      toolName: "execute_approved_rollback",
+      status: "error",
+      error: { code: "APPROVAL_MISMATCH" },
+    });
+  });
+
+  it("rejects repeat execution and audits the failure", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:07:00.000Z" });
+    runtime.proposeRollback({ deploymentId: "DEP-8821" });
+    const approval = runtime.approveCurrentProposal();
+    runtime.executeApprovedRollback({ approvalId: approval.approvalId, actionHash: approval.actionHash });
+
+    expect(() => runtime.executeApprovedRollback({
+      approvalId: approval.approvalId,
+      actionHash: approval.actionHash,
+    })).toThrow(PolicyPilotInputError);
+
+    expect(runtime.getSnapshot().auditLog.at(-1)).toMatchObject({
+      toolName: "execute_approved_rollback",
+      status: "error",
+      error: { code: "ROLLBACK_ALREADY_EXECUTED" },
+    });
+  });
+
+  it("approveCurrentProposal does not append an audit entry", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:08:00.000Z" });
+    runtime.proposeRollback({ deploymentId: "DEP-8821" });
+    const beforeCount = runtime.getSnapshot().auditLog.length;
+
+    runtime.approveCurrentProposal();
+
+    expect(runtime.getSnapshot().auditLog).toHaveLength(beforeCount);
+  });
+
+  it("snapshots stay frozen and referentially stable until a genuine change", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:09:00.000Z" });
+    runtime.proposeRollback({ deploymentId: "DEP-8821" });
+
+    const snap1 = runtime.getSnapshot();
+    const snap2 = runtime.getSnapshot();
+    expect(snap1).toBe(snap2);
+    expect(Object.isFrozen(snap1)).toBe(true);
+    expect(Object.isFrozen(snap1.policy)).toBe(true);
+    expect(Object.isFrozen(snap1.currentApproval)).toBe(true);
+    expect(Object.isFrozen(snap1.currentExecution)).toBe(true);
+
+    runtime.approveCurrentProposal();
+
+    const snap3 = runtime.getSnapshot();
+    expect(snap3).not.toBe(snap1);
+    expect(snap3.policy.phase).toBe("approved");
+    expect(snap3.currentApproval).not.toBeNull();
   });
 });
