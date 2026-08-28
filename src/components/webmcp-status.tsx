@@ -21,7 +21,13 @@ function StatusLine({ viewState, children }: { viewState: RegistrationViewState;
   );
 }
 
-const TOOL_NAMES = ["get_incident_context", "list_recent_deploys", "propose_rollback"] as const;
+const TOOL_NAMES = [
+  "get_incident_context",
+  "list_recent_deploys",
+  "get_policy_state",
+  "propose_rollback",
+  "execute_approved_rollback",
+] as const;
 
 export default function WebMCPStatus() {
   const [viewState, setViewState] = useState<RegistrationViewState>("registering");
@@ -58,7 +64,7 @@ export default function WebMCPStatus() {
 
       {viewState === "registered" && (
         <div role="status" className="flex flex-col gap-2">
-          <StatusLine viewState={viewState}>3 tools registered</StatusLine>
+          <StatusLine viewState={viewState}>5 tools registered</StatusLine>
           <ul className="flex flex-wrap gap-1.5" aria-label="Registered tools">
             {TOOL_NAMES.map((name) => (
               <li key={name}>
@@ -69,7 +75,9 @@ export default function WebMCPStatus() {
             ))}
           </ul>
           <p className="text-xs leading-5 text-zinc-400">
-            Connected agents can now read the live incident context, list recent deployments, and prepare rollback proposals from this page.
+            Connected agents can now read the live incident context, list recent deployments, check policy state,
+            prepare rollback proposals, and attempt execution from this page. The execution tool is discoverable
+            but rejects every call until a human approves the exact proposal with its action fingerprint.
           </p>
         </div>
       )}

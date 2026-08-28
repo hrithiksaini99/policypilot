@@ -1,7 +1,14 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { policyPilotRuntime, type PolicyPilotAuditEntry, type PolicyPilotSnapshot, type RollbackProposal } from "@/lib/operations";
+import {
+  policyPilotRuntime,
+  type PolicyPilotAuditEntry,
+  type PolicyPilotSnapshot,
+  type RollbackProposal,
+  type ApprovalReceipt,
+  type ExecutionReceipt,
+} from "@/lib/operations";
 
 function getSnapshot(): PolicyPilotSnapshot {
   return policyPilotRuntime.getSnapshot();
@@ -101,8 +108,61 @@ function ProposalPreview({ proposal }: { proposal: RollbackProposal }) {
         </div>
         <div className="col-span-2">
           <p className="text-xs text-zinc-400">
-            Day 2 cannot execute this rollback; human approval is still required.
+            Day 3 cannot execute this rollback; human approval is still required.
           </p>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+function ApprovalPreview({ approval }: { approval: ApprovalReceipt }) {
+  return (
+    <section aria-label="Approval receipt" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <span aria-hidden="true" className="size-2 rounded-full bg-emerald-500" />
+        <h2 className="font-semibold text-emerald-200">Approval recorded</h2>
+      </div>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm mb-4">
+        <div>
+          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-400">Approval ID</dt>
+          <dd className="mt-1 font-mono text-zinc-100">{approval.approvalId}</dd>
+        </div>
+        <div>
+          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-400">Approved at</dt>
+          <dd className="mt-1 font-mono text-zinc-100">{formatTimestamp(approval.approvedAt)}</dd>
+        </div>
+        <div className="col-span-2">
+          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-400">Action fingerprint</dt>
+          <dd className="mt-1 font-mono text-xs text-cyan-300 break-all">{approval.actionHash}</dd>
+        </div>
+      </dl>
+      <p className="text-xs text-zinc-400">
+        Execution available only for the exact approval ID and action fingerprint.
+      </p>
+    </section>
+  );
+}
+
+function ExecutionPreview({ execution }: { execution: ExecutionReceipt }) {
+  return (
+    <section aria-label="Execution receipt" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <span aria-hidden="true" className="size-2 rounded-full bg-emerald-500" />
+        <h2 className="font-semibold text-emerald-200">Approved rollback completed</h2>
+      </div>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm mb-4">
+        <div>
+          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-400">Execution ID</dt>
+          <dd className="mt-1 font-mono text-zinc-100">{execution.executionId}</dd>
+        </div>
+        <div>
+          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-400">Deployment</dt>
+          <dd className="mt-1 font-mono text-zinc-100">{execution.deploymentId}</dd>
+        </div>
+        <div className="col-span-2">
+          <dt className="font-mono text-xs uppercase tracking-wider text-zinc-400">Executed at</dt>
+          <dd className="mt-1 font-mono text-zinc-100">{formatTimestamp(execution.executedAt)}</dd>
         </div>
       </dl>
     </section>
@@ -116,7 +176,7 @@ export default function AgentActivity() {
     getSnapshot,
   );
 
-  const { auditLog, currentProposal } = snapshot;
+  const { auditLog, currentProposal, currentApproval, currentExecution } = snapshot;
   const reversedAuditLog = [...auditLog].reverse();
 
   return (
@@ -131,7 +191,7 @@ export default function AgentActivity() {
         </button>
       </div>
 
-      {reversedAuditLog.length === 0 && currentProposal === null && (
+      {reversedAuditLog.length === 0 && currentProposal === null && currentApproval === null && currentExecution === null && (
         <div className="flex flex-col gap-3 text-sm leading-6 text-zinc-300">
           <p>
             Connected agents can inspect context, list deploys, and prepare—but not execute—a rollback.
@@ -153,6 +213,8 @@ export default function AgentActivity() {
       )}
 
       {currentProposal && <ProposalPreview proposal={currentProposal as RollbackProposal} />}
+      {currentApproval && <ApprovalPreview approval={currentApproval} />}
+      {currentExecution && <ExecutionPreview execution={currentExecution} />}
     </section>
   );
 }
