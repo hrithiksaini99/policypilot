@@ -402,6 +402,46 @@ describe("policyPilotRuntime singleton", () => {
 });
 
 describe("policy phase and approval/execution runtime", () => {
+  it("getPolicyState produces a success audit event named get_policy_state and returns state", () => {
+    const stamps = ["2026-08-28T09:00:00.000Z", "2026-08-28T09:01:00.000Z"];
+    const runtime = createPolicyPilotRuntime({ now: createSequentialClock(...stamps) });
+    const state = runtime.getPolicyState();
+
+    expect(state.phase).toBe("read");
+    expect(state.executionAvailability).toBe("blocked");
+
+    const snapshot = runtime.getSnapshot();
+    const policyStateEntries = snapshot.auditLog.filter(
+      (e): e is PolicyPilotAuditSuccessEntry => e.toolName === "get_policy_state" && e.status === "success"
+    );
+    expect(policyStateEntries).toHaveLength(1);
+    expect(policyStateEntries[0].eventId).toBe("EVT-0001");
+    expect(policyStateEntries[0].timestamp).toBe(stamps[0]);
+    expect(policyStateEntries[0].toolName).toBe("get_policy_state");
+    expect(policyStateEntries[0].input).toBeUndefined();
+    expect(policyStateEntries[0].result).toEqual(state);
+    expect(policyStateEntries[0].result).not.toBe(state);
+  });
+
+  it("getSnapshot does not create audit entries or notifications recursively", () => {
+    const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:00:00.000Z" });
+    runtime.getPolicyState(); // Creates EVT-0001
+
+    const beforeCount = runtime.getSnapshot().auditLog.length;
+    let notifyCount = 0;
+    const unsubscribe = runtime.subscribe(() => { notifyCount++; });
+
+    // Multiple getSnapshot calls should not create new audit entries or notifications
+    runtime.getSnapshot();
+    runtime.getSnapshot();
+    runtime.getSnapshot();
+
+    expect(runtime.getSnapshot().auditLog).toHaveLength(beforeCount);
+    expect(notifyCount).toBe(0);
+
+    unsubscribe();
+  });
+
   it("starts in read phase with blocked execution availability", () => {
     const runtime = createPolicyPilotRuntime({ now: () => "2026-08-28T09:00:00.000Z" });
     const state = runtime.getPolicyState();

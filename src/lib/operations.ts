@@ -75,7 +75,8 @@ export type PolicyPilotToolName =
   | "get_incident_context"
   | "list_recent_deploys"
   | "propose_rollback"
-  | "execute_approved_rollback";
+  | "execute_approved_rollback"
+  | "get_policy_state";
 
 export interface PolicyPilotAuditSuccessEntry {
   readonly eventId: string;
@@ -427,6 +428,15 @@ export function createPolicyPilotRuntime(
   }
 
   function getPolicyState(): PolicyState {
+    return runTool(
+      "get_policy_state",
+      undefined,
+      () => buildPolicyStateInternal(),
+      (state) => deepFreeze({ ...state }),
+    );
+  }
+
+  function buildPolicyStateInternal(): PolicyState {
     if (currentExecution) {
       return buildPolicyState("executed", "completed", "Rollback has been executed; incident is mitigated.");
     }
@@ -508,7 +518,7 @@ export function createPolicyPilotRuntime(
           }
           return deepFreeze({ ...entry, error: { ...entry.error } });
         }),
-        policy: freezePolicyState(getPolicyState()),
+        policy: freezePolicyState(buildPolicyStateInternal()),
         currentApproval: currentApproval ? deepFreeze(cloneApprovalReceipt(currentApproval)) : null,
         currentExecution: currentExecution ? deepFreeze(cloneExecutionReceipt(currentExecution)) : null,
       });
