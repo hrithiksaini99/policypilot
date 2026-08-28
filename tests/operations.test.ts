@@ -103,6 +103,29 @@ describe("proposeRollback", () => {
     expect(runtime.getSnapshot().auditLog).toHaveLength(2);
   });
 
+  it("buildRollbackProposal uses runtime-owned incident state, not imported getIncidentContext directly", () => {
+    let callCount = 0;
+    vi.mocked(getIncidentContext).mockImplementation(() => {
+      callCount += 1;
+      return {
+        incidentId: callCount === 1 ? "INC-1042" : "INC-DIFFERENT",
+        service: "payments-api",
+        severity: "SEV-2" as const,
+        status: "investigating" as const,
+        summary: "Elevated 5xx errors after feature-flag rollout",
+        startedAt: "2026-08-26T08:30:00.000Z",
+        signals: ["signal 1", "signal 2"],
+      };
+    });
+
+    const runtime = createPolicyPilotRuntime();
+    const first = runtime.proposeRollback({ deploymentId: "DEP-8821" });
+    const second = runtime.proposeRollback({ deploymentId: "DEP-8821" });
+
+    expect(first.incidentId).toBe("INC-1042");
+    expect(second.incidentId).toBe("INC-1042");
+  });
+
   it.each([
     ["missing input entirely", undefined],
     ["null input", null],

@@ -362,7 +362,7 @@ export function createPolicyPilotRuntime(
   }
 
   function buildRollbackProposal(deploymentId: string): RollbackProposal {
-    const incident = getIncidentContext();
+    const incident = getCurrentIncident();
     return deepFreeze({
       proposalId: `RB-${incident.incidentId}-${deploymentId}`,
       incidentId: incident.incidentId,
