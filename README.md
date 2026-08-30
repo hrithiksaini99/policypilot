@@ -4,15 +4,15 @@ PolicyPilot is an agent-native operations room demonstrating a three-day WebMCP 
 
 | Day | Milestone | Tools | Key Capability |
 |-----|-----------|-------|----------------|
-| **Day 1** (main) | Read-only incident inspection | 1 (`get_incident_context`) | Deterministic dashboard + single read-only WebMCP tool |
-| **Day 2** (feature/day2-tool-contract) | Shared runtime, activity feed, rollback proposal preview, audit trail, reset | 3 (adds `list_recent_deploys`, `propose_rollback`) | Live agent feed, non-executing preview, immutable audit log |
-| **Day 3** (feature/day3-approval-execution) | Human approval gate, deterministic fingerprint, pre-approval rejection, simulated execution & mitigation | 5 (adds `get_policy_state`, `execute_approved_rollback`) | Approval receipt binding, execution only after exact fingerprint match |
+| **Day 1** | Read-only incident inspection | 1 (`get_incident_context`) | Deterministic dashboard + single read-only WebMCP tool |
+| **Day 2** | Shared runtime, activity feed, rollback proposal preview, audit trail, reset | 3 (adds `list_recent_deploys`, `propose_rollback`) | Live agent feed, non-executing preview, immutable audit log |
+| **Day 3** | Human approval gate, deterministic fingerprint, pre-approval rejection, simulated execution & mitigation | 5 (adds `get_policy_state`, `execute_approved_rollback`) | Approval receipt binding, execution only after exact fingerprint match |
 
-> **Branch status:** `main` contains the **Day 1** implementation only. Day 2 and Day 3 remain on their feature branches — the default branch does **not** run Day 3.
+All three days now live on `main`, so the default branch runs the complete Day 3 implementation. The sections below trace how it was built up.
 
 ---
 
-## Day 1 — Read-Only Inspection (main)
+## Day 1 — Read-Only Inspection
 
 A deterministic incident dashboard exposing exactly one read-only WebMCP tool — `get_incident_context` — so a browser-resident agent can inspect the current incident state without being able to change anything.
 
@@ -31,7 +31,7 @@ The seeded incident is the single source of truth: the dashboard UI and the WebM
 
 ---
 
-## Day 2 — Shared Runtime, Activity Feed & Rollback Preview (feature/day2-tool-contract)
+## Day 2 — Shared Runtime, Activity Feed & Rollback Preview
 
 Adds a live agent activity feed, a rollback proposal preview that requires human approval, and a reset control — all driven by a shared runtime that is the single source of truth for audit state.
 
@@ -68,7 +68,7 @@ The `Reset demo` button calls `policyPilotRuntime.reset()`, which clears the aud
 
 ---
 
-## Day 3 — Deterministic Approval & Execution (feature/day3-approval-execution)
+## Day 3 — Deterministic Approval & Execution
 
 Adds a deterministic human approval workflow: an agent cannot execute the rollback until a person explicitly approves the exact proposal with its action fingerprint. The execution tool remains discoverable but is hard-rejected by the runtime before approval.
 
@@ -110,14 +110,6 @@ On successful execution with exact matching input, the runtime returns a fixed `
 
 ---
 
-## Branch Links
-
-- **[Day 1 (main)](https://github.com/hrithiksaini99/policypilot/tree/main):** `git checkout main` — this branch
-- **[Day 2](https://github.com/hrithiksaini99/policypilot/tree/feature/day2-tool-contract):** `git checkout feature/day2-tool-contract`
-- **[Day 3](https://github.com/hrithiksaini99/policypilot/tree/feature/day3-approval-execution):** `git checkout feature/day3-approval-execution`
-
----
-
 ## Prerequisites
 
 - Node.js 20.9 or newer
@@ -155,14 +147,15 @@ npm run lint
 npm run build
 ```
 
-## Branch-Specific Testing
+## Testing the WebMCP tools
 
-### Day 1 (main)
+Everything below runs from `main`:
 
 ```bash
-git checkout main
 npm install && npm run dev
 ```
+
+### Day 1 capability
 
 1. Open `http://localhost:3000` in a WebMCP-enabled browser
 2. Prompt the agent:
@@ -172,12 +165,7 @@ npm install && npm run dev
 
 ---
 
-### Day 2 (feature/day2-tool-contract)
-
-```bash
-git checkout feature/day2-tool-contract
-npm install && npm run dev
-```
+### Day 2 capability
 
 1. Open `http://localhost:3000` in a WebMCP-enabled browser
 2. Prompt the agent:
@@ -187,21 +175,10 @@ npm install && npm run dev
 
 ---
 
-### Day 3 (feature/day3-approval-execution)
-
-```bash
-git checkout feature/day3-approval-execution
-npm install && npm run dev
-```
+### Day 3 capability
 
 1. Open `http://localhost:3000` in a WebMCP-enabled browser
 2. Prompt the agent:
    > Inspect the incident and policy, propose the safe rollback, try execution before approval, then approve the exact displayed rollback and execute it with the returned approval ID and action fingerprint.
 
 **Expected:** Pre-execution rejects with `APPROVAL_REQUIRED`; human dialog binds `DEP-8821`, `checkout-v2 → checkout-v1`, `APR-INC-1042-DEP-8821`, and fingerprint `fnv1a-32:rollback-inc-1042-dep-8821-checkout-v2-checkout-v1`; exact execution returns `EXE-INC-1042-DEP-8821`, changes health to `mitigated`, creates completed audit event; repeat execution rejects with `ROLLBACK_ALREADY_EXECUTED`; Reset restores original incident/policy, empty audit/approval/execution, five retained registrations.
-
----
-
-## Day 1 Boundary
-
-Day 1 ships one read-only tool. Human approvals, mutations, and rollback execution arrive on Day 2 and Day 3 feature branches.
