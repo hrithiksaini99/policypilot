@@ -1,9 +1,9 @@
-export type IncidentStatus = "investigating" | "mitigated";
+export type IncidentStatus = "investigating" | "mitigated" | "healthy";
 
 export interface IncidentContext {
   incidentId: string;
   service: string;
-  severity: "SEV-2";
+  severity: "SEV-2" | "INFO";
   status: IncidentStatus;
   summary: string;
   startedAt: string;
@@ -31,4 +31,22 @@ export function getIncidentContext(): IncidentContext {
     ...seededIncident,
     signals: [...seededIncident.signals],
   };
+}
+
+export function getIncidentContextForScenario(scenario: "incident" | "healthy"): IncidentContext {
+  if (scenario === "healthy") {
+    return {
+      incidentId: "OPS-HEALTHY-0001",
+      service: "payments-api",
+      severity: "INFO",
+      status: "healthy",
+      summary: "System operating normally; no action required",
+      startedAt: "2026-08-26T08:30:00.000Z",
+      signals: Object.freeze([
+        "All service health indicators nominal",
+        "No active incidents or deployments requiring action",
+      ]),
+    };
+  }
+  return getIncidentContext();
 }

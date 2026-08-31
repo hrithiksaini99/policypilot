@@ -650,3 +650,171 @@ describe("policy phase and approval/execution runtime", () => {
     expect(snap3.currentApproval).not.toBeNull();
   });
 });
+
+describe("scenario-aware runtime", () => {
+  it("starts with incident scenario by default", () => {
+    const runtime = createPolicyPilotRuntime();
+    expect(runtime.getSnapshot().scenarioId).toBe("incident");
+  });
+
+  it("starts with healthy scenario when initialScenario is healthy", () => {
+    const runtime = createPolicyPilotRuntime({ initialScenario: "healthy" });
+    expect(runtime.getSnapshot().scenarioId).toBe("healthy");
+    expect(runtime.getSnapshot().incident.incidentId).toBe("OPS-HEALTHY-0001");
+    expect(runtime.getSnapshot().incident.severity).toBe("INFO");
+    expect(runtime.getSnapshot().incident.status).toBe("healthy");
+    expect(runtime.getSnapshot().recentDeployments[0].deploymentId).toBe("DEP-9900");
+    expect(runtime.getSnapshot().recentDeployments[0].suspect).toBe(false);
+  });
+
+  it("selectScenario switches to healthy and clears state", () => {
+    const runtime = createPolicyPilotRuntime({ initialScenario: "incident" });
+    runtime.proposeRollback({ deploymentId: "DEP-8821" });
+    const listener = vi.fn();
+    runtime.subscribe(listener);
+    runtime.selectScenario("healthy");
+
+    expect(runtime.getSnapshot()).toMatchObject({
+      scenarioId: "healthy",
+      incident: { incidentId: "OPS-HEALTHY-0001", severity: "INFO", status: "healthy" },
+      recentDeployments: [{ deploymentId: "DEP-9900", suspect: false }],
+      currentProposal: null,
+      currentApproval: null,
+      currentExecution: null,
+      auditLog: [],
+      policy: { phase: "read", executionAvailability: "blocked" },
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("selectScenario to same scenario is a no-op", () => {
+    const runtime = createPolicyPilotRuntime({ initialScenario: "incident" });
+    const listener = vi.fn();
+    runtime.subscribe(listener);
+    runtime.selectScenario("incident");
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(runtime.getSnapshot().scenarioId).toBe("incident");
+  });
+
+  it("reset stays in the selected scenario", () => {
+    const runtime = createPolicyPilotRuntime({ initialScenario: "healthy" });
+    // In healthy, proposeRollback throws NO_ACTION_REQUIRED, creating an error audit entry
+    let caught: unknown;
+    try {
+      runtime.proposeRollback({ deploymentId: "DEP-9900" });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(PolicyPilotInputError);
+    expect((caught as PolicyPilotInputError).code).toBe("NO_ACTION_REQUIRED");
+    expect(runtime.getSnapshot().auditLog).toHaveLength(1);
+
+    runtime.reset();
+
+    expect(runtime.getSnapshot().scenarioId).toBe("healthy");
+    expect(runtime.getSnapshot().currentProposal).toBeNull();
+    expect(runtime.getSnapshot().auditLog).toHaveLength(0);
+  });
+
+  it("event numbering restarts on scenario switch", () => {
+    const runtime = createPolicyPilotRuntime({ initialScenario: "incident" });
+    runtime.readIncident();
+    runtime.selectScenario("healthy");
+    runtime.readIncident();
+
+    const auditLog = runtime.getSnapshot().auditLog;
+    // After selectScenario, audit log is cleared, so only the second readIncident remains
+    expect(auditLog).toHaveLength(1);
+    expect(auditLog[0].eventId).toBe("EVT-0001");
+  });
+
+  it("snapshots remain frozen and stable", () => {
+    const runtime = createPolicyPilotRuntime({ initialScenario: "healthy" });
+    const snap1 = runtime.getSnapshot();
+    const snap2 = runtime.getSnapshot();
+    expect(snap1).toBe(snap2);
+    expect(Object.isFrozen(snap1)).toBe(true);
+  });
+
+  it("valid DEP-9900 in healthy yields audited NO_ACTION_REQUIRED", () => {
+    const runtime = createPolicyPilotRuntime({ initialScenario: "healthy" });
+
+    let caught: unknown;
+    try {
+      runtime.proposeRollback({ deploymentId: "DEP-9900" });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(PolicyPilotInputError);
+    expect((caught as PolicyPilotInputError).code).toBe("NO_ACTION_REQUIRED");
+    const auditLog = runtime.getSnapshot().auditLog;
+    expect(auditLog).toHaveLength(1);
+    expect(auditLog[0].status).toBe("error");
+    if (auditLog[0].status === "error") {
+      expect(auditLog[0].error.code).toBe("NO_ACTION_REQUIRED");
+    }
+  });
+
+  it("unknown deployment in healthy yields audited INVALID_ROLLBACK_INPUT", () => {
+    const runtime = createPolicyPilotRuntime({ initialScenario: "healthy" });
+
+    let caught: unknown;
+    try {
+      runtime.proposeRollback({ deploymentId: "DEP-9999" });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(PolicyPilotInputError);
+    expect((caught as PolicyPilotInputError).code).toBe("INVALID_ROLLBACK_INPUT");
+  });
+
+  it("empty input in healthy yields audited INVALID_ROLLBACK_INPUT", () => {
+    const runtime = createPolicyPilotRuntime({ initialScenario: "healthy" });
+
+    let caught: unknown;
+    try {
+      runtime.proposeRollback({});
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(PolicyPilotInputError);
+    expect((caught as PolicyPilotInputError).code).toBe("INVALID_ROLLBACK_INPUT");
+  });
+
+  it("valid-shaped execution in healthy yields APPROVAL_REQUIRED", () => {
+    const runtime = createPolicyPilotRuntime({ initialScenario: "healthy" });
+    // In healthy, no proposal can be created (DEP-9900 throws NO_ACTION_REQUIRED),
+    // so executing without approval should yield APPROVAL_REQUIRED
+
+    let caught: unknown;
+    try {
+      runtime.executeApprovedRollback({
+        approvalId: "APR-OPS-HEALTHY-0001-DEP-9900",
+        actionHash: "fnv1a-32:rollback-ops-healthy-0001-dep-9900-checkout-v2-checkout-v1",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(PolicyPilotInputError);
+    expect((caught as PolicyPilotInputError).code).toBe("APPROVAL_REQUIRED");
+  });
+
+  it("empty execution input yields INVALID_APPROVAL_INPUT", () => {
+    const runtime = createPolicyPilotRuntime({ initialScenario: "healthy" });
+
+    let caught: unknown;
+    try {
+      runtime.executeApprovedRollback({});
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(PolicyPilotInputError);
+    expect((caught as PolicyPilotInputError).code).toBe("INVALID_APPROVAL_INPUT");
+  });
+});

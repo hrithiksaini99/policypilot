@@ -1,4 +1,11 @@
 import { getIncidentContext, type IncidentContext } from "@/lib/incident";
+import {
+  type ScenarioId,
+  type PolicyPilotRuntimeOptions as ScenarioRuntimeOptions,
+  getHealthyIncidentContext,
+  getHealthyDeployments,
+  NO_ACTION_REQUIRED,
+} from "@/lib/scenario";
 
 export type PolicyPhase = "read" | "draft" | "approval_required" | "approved" | "executed";
 
@@ -61,16 +68,6 @@ const seededDeployments: readonly RecentDeployment[] = Object.freeze([
   }) satisfies RecentDeployment,
 ]);
 
-const foundSuspectDeployment = seededDeployments.find(
-  (deployment) => deployment.suspect && deployment.status === "active",
-);
-
-if (!foundSuspectDeployment) {
-  throw new Error("Seed data must include an active suspect deployment.");
-}
-
-const suspectDeployment: RecentDeployment = foundSuspectDeployment;
-
 export type PolicyPilotToolName =
   | "get_incident_context"
   | "list_recent_deploys"
@@ -93,7 +90,8 @@ export type PolicyPilotErrorCode =
   | "APPROVAL_REQUIRED"
   | "INVALID_APPROVAL_INPUT"
   | "APPROVAL_MISMATCH"
-  | "ROLLBACK_ALREADY_EXECUTED";
+  | "ROLLBACK_ALREADY_EXECUTED"
+  | "NO_ACTION_REQUIRED";
 
 export interface PolicyPilotAuditErrorDetail {
   readonly code: PolicyPilotErrorCode;
@@ -127,6 +125,7 @@ export interface RollbackProposal {
 }
 
 export interface PolicyPilotSnapshot {
+  readonly scenarioId: ScenarioId;
   readonly incident: IncidentContext;
   readonly recentDeployments: readonly RecentDeployment[];
   readonly currentProposal: RollbackProposal | null;
@@ -146,18 +145,7 @@ export class PolicyPilotInputError extends Error {
   }
 }
 
-const INVALID_ROLLBACK_INPUT: PolicyPilotErrorCode = "INVALID_ROLLBACK_INPUT";
-const INTERNAL_TOOL_ERROR: PolicyPilotErrorCode = "INTERNAL_TOOL_ERROR";
-const APPROVAL_REQUIRED: PolicyPilotErrorCode = "APPROVAL_REQUIRED";
-const INVALID_APPROVAL_INPUT: PolicyPilotErrorCode = "INVALID_APPROVAL_INPUT";
-const APPROVAL_MISMATCH: PolicyPilotErrorCode = "APPROVAL_MISMATCH";
-const ROLLBACK_ALREADY_EXECUTED: PolicyPilotErrorCode = "ROLLBACK_ALREADY_EXECUTED";
-const INVALID_ROLLBACK_MESSAGE =
-  "deploymentId must identify the active suspect deployment (DEP-8821).";
-
-export interface PolicyPilotRuntimeOptions {
-  now?: () => string;
-}
+export type PolicyPilotRuntimeOptions = ScenarioRuntimeOptions;
 
 export interface PolicyPilotRuntime {
   readIncident(): IncidentContext;
@@ -169,6 +157,7 @@ export interface PolicyPilotRuntime {
   getPolicyState(): PolicyState;
   approveCurrentProposal(): ApprovalReceipt;
   executeApprovedRollback(input: unknown): ExecutionReceipt;
+  selectScenario(scenarioId: ScenarioId): void;
 }
 
 function deepFreeze<T>(value: T): T {
@@ -209,6 +198,10 @@ const ACTION_HASH = "fnv1a-32:rollback-inc-1042-dep-8821-checkout-v2-checkout-v1
 const APPROVAL_ID = "APR-INC-1042-DEP-8821";
 const EXECUTION_ID = "EXE-INC-1042-DEP-8821";
 
+const HEALTHY_ACTION_HASH = "fnv1a-32:rollback-ops-healthy-0001-dep-9900-checkout-v2-checkout-v1";
+const HEALTHY_APPROVAL_ID = "APR-OPS-HEALTHY-0001-DEP-9900";
+const HEALTHY_EXECUTION_ID = "EXE-OPS-HEALTHY-0001-DEP-9900";
+
 function buildPolicyState(
   phase: PolicyPhase,
   executionAvailability: "blocked" | "available" | "completed",
@@ -241,6 +234,8 @@ export function createPolicyPilotRuntime(
 ): PolicyPilotRuntime {
   const now = options.now ?? (() => new Date().toISOString());
 
+  let currentScenario: ScenarioId = options.initialScenario ?? "incident";
+
   let auditLog: PolicyPilotAuditEntry[] = [];
   let currentProposal: RollbackProposal | null = null;
   let currentApproval: ApprovalReceipt | null = null;
@@ -264,14 +259,33 @@ export function createPolicyPilotRuntime(
     auditLog = [...auditLog, entry];
   }
 
-  // Initial incident state (lazy initialization)
   let currentIncident: IncidentContext | null = null;
 
   function getCurrentIncident(): IncidentContext {
     if (currentIncident === null) {
-      currentIncident = getIncidentContext();
+      currentIncident = getIncidentContextForScenario(currentScenario);
     }
     return currentIncident;
+  }
+
+  function getIncidentContextForScenario(scenario: ScenarioId): IncidentContext {
+    if (scenario === "healthy") {
+      return getHealthyIncidentContext();
+    }
+    return getIncidentContext();
+  }
+
+  function getDeploymentsForScenario(scenario: ScenarioId): readonly RecentDeployment[] {
+    if (scenario === "healthy") {
+      return getHealthyDeployments();
+    }
+    return seededDeployments;
+  }
+
+  function getSuspectDeploymentForScenario(scenario: ScenarioId): RecentDeployment | null {
+    const deployments = getDeploymentsForScenario(scenario);
+    const found = deployments.find((d) => d.suspect && d.status === "active");
+    return found ?? null;
   }
 
   function cloneIncidentLocal(incident: IncidentContext): IncidentContext {
@@ -319,7 +333,7 @@ export function createPolicyPilotRuntime(
         error instanceof PolicyPilotInputError
           ? { code: error.code, message: error.message }
           : {
-              code: INTERNAL_TOOL_ERROR,
+              code: "INTERNAL_TOOL_ERROR" as PolicyPilotErrorCode,
               message:
                 error instanceof Error
                   ? error.message
@@ -342,7 +356,7 @@ export function createPolicyPilotRuntime(
 
   function validateRollbackInput(input: unknown): string {
     if (!isPlainObject(input)) {
-      throw new PolicyPilotInputError(INVALID_ROLLBACK_INPUT, INVALID_ROLLBACK_MESSAGE);
+      throw new PolicyPilotInputError("INVALID_ROLLBACK_INPUT", "deploymentId must identify the active suspect deployment (DEP-8821).");
     }
 
     const keys = Object.keys(input);
@@ -351,12 +365,21 @@ export function createPolicyPilotRuntime(
       keys[0] !== "deploymentId" ||
       typeof input.deploymentId !== "string"
     ) {
-      throw new PolicyPilotInputError(INVALID_ROLLBACK_INPUT, INVALID_ROLLBACK_MESSAGE);
+      throw new PolicyPilotInputError("INVALID_ROLLBACK_INPUT", "deploymentId must identify the active suspect deployment (DEP-8821).");
     }
 
     const deploymentId = input.deploymentId;
-    if (deploymentId !== suspectDeployment.deploymentId) {
-      throw new PolicyPilotInputError(INVALID_ROLLBACK_INPUT, INVALID_ROLLBACK_MESSAGE);
+    const suspectDeployment = getSuspectDeploymentForScenario(currentScenario);
+
+    if (currentScenario === "healthy") {
+      if (deploymentId === "DEP-9900") {
+        throw new PolicyPilotInputError(NO_ACTION_REQUIRED, "System healthy; no rollback action required or permitted.");
+      }
+      throw new PolicyPilotInputError("INVALID_ROLLBACK_INPUT", "deploymentId must identify the active suspect deployment (DEP-8821).");
+    }
+
+    if (!suspectDeployment || deploymentId !== suspectDeployment.deploymentId) {
+      throw new PolicyPilotInputError("INVALID_ROLLBACK_INPUT", "deploymentId must identify the active suspect deployment (DEP-8821).");
     }
 
     return deploymentId;
@@ -364,6 +387,7 @@ export function createPolicyPilotRuntime(
 
   function buildRollbackProposal(deploymentId: string): RollbackProposal {
     const incident = getCurrentIncident();
+    const suspectDeployment = getSuspectDeploymentForScenario(currentScenario)!;
     return deepFreeze({
       proposalId: `RB-${incident.incidentId}-${deploymentId}`,
       incidentId: incident.incidentId,
@@ -380,16 +404,16 @@ export function createPolicyPilotRuntime(
 
   function validateApprovalInput(input: unknown): { approvalId: string; actionHash: string } {
     if (!isPlainObject(input)) {
-      throw new PolicyPilotInputError(INVALID_APPROVAL_INPUT, "Input must be a plain object with exactly approvalId and actionHash.");
+      throw new PolicyPilotInputError("INVALID_APPROVAL_INPUT", "Input must be a plain object with exactly approvalId and actionHash.");
     }
 
     const keys = Object.keys(input);
     if (keys.length !== 2 || !keys.includes("approvalId") || !keys.includes("actionHash")) {
-      throw new PolicyPilotInputError(INVALID_APPROVAL_INPUT, "Input must be a plain object with exactly approvalId and actionHash.");
+      throw new PolicyPilotInputError("INVALID_APPROVAL_INPUT", "Input must be a plain object with exactly approvalId and actionHash.");
     }
 
     if (typeof input.approvalId !== "string" || typeof input.actionHash !== "string") {
-      throw new PolicyPilotInputError(INVALID_APPROVAL_INPUT, "approvalId and actionHash must be strings.");
+      throw new PolicyPilotInputError("INVALID_APPROVAL_INPUT", "approvalId and actionHash must be strings.");
     }
 
     return { approvalId: input.approvalId, actionHash: input.actionHash };
@@ -408,7 +432,7 @@ export function createPolicyPilotRuntime(
     return runTool(
       "list_recent_deploys",
       undefined,
-      () => seededDeployments.map(cloneDeployment),
+      () => getDeploymentsForScenario(currentScenario).map(cloneDeployment),
       (deployments) => deployments.map((deployment) => deepFreeze(cloneDeployment(deployment))),
     );
   }
@@ -451,12 +475,13 @@ export function createPolicyPilotRuntime(
 
   function approveCurrentProposal(): ApprovalReceipt {
     if (!currentProposal) {
-      throw new PolicyPilotInputError(INVALID_APPROVAL_INPUT, "No proposal pending approval.");
+      throw new PolicyPilotInputError("INVALID_APPROVAL_INPUT", "No proposal pending approval.");
     }
 
+    const isHealthy = currentScenario === "healthy";
     const approval: ApprovalReceipt = deepFreeze({
-      approvalId: APPROVAL_ID,
-      actionHash: ACTION_HASH,
+      approvalId: isHealthy ? HEALTHY_APPROVAL_ID : APPROVAL_ID,
+      actionHash: isHealthy ? HEALTHY_ACTION_HASH : ACTION_HASH,
       proposalId: currentProposal.proposalId,
       approvedAt: now(),
       status: "approved" as const,
@@ -475,19 +500,19 @@ export function createPolicyPilotRuntime(
         const { approvalId, actionHash } = validateApprovalInput(input);
 
         if (!currentProposal || !currentApproval) {
-          throw new PolicyPilotInputError(APPROVAL_REQUIRED, "No approved proposal available for execution.");
+          throw new PolicyPilotInputError("APPROVAL_REQUIRED", "No approved proposal available for execution.");
         }
 
         if (approvalId !== currentApproval.approvalId || actionHash !== currentApproval.actionHash) {
-          throw new PolicyPilotInputError(APPROVAL_MISMATCH, "Approval ID or action hash does not match the current approval receipt.");
+          throw new PolicyPilotInputError("APPROVAL_MISMATCH", "Approval ID or action hash does not match the current approval receipt.");
         }
 
         if (currentExecution) {
-          throw new PolicyPilotInputError(ROLLBACK_ALREADY_EXECUTED, "Rollback has already been executed.");
+          throw new PolicyPilotInputError("ROLLBACK_ALREADY_EXECUTED", "Rollback has already been executed.");
         }
 
         const execution: ExecutionReceipt = deepFreeze({
-          executionId: EXECUTION_ID,
+          executionId: currentScenario === "healthy" ? HEALTHY_EXECUTION_ID : EXECUTION_ID,
           approvalId: currentApproval.approvalId,
           actionHash: currentApproval.actionHash,
           deploymentId: currentProposal.deploymentId,
@@ -507,8 +532,9 @@ export function createPolicyPilotRuntime(
   function getSnapshot(): PolicyPilotSnapshot {
     if (!cachedSnapshot) {
       cachedSnapshot = deepFreeze({
+        scenarioId: currentScenario,
         incident: deepFreeze(cloneIncidentLocal(getCurrentIncident())),
-        recentDeployments: seededDeployments.map((deployment) =>
+        recentDeployments: getDeploymentsForScenario(currentScenario).map((deployment) =>
           deepFreeze(cloneDeployment(deployment)),
         ),
         currentProposal: currentProposal ? deepFreeze(cloneProposal(currentProposal)) : null,
@@ -543,6 +569,21 @@ export function createPolicyPilotRuntime(
     notify();
   }
 
+  function selectScenario(scenarioId: ScenarioId): void {
+    if (scenarioId === currentScenario) {
+      return;
+    }
+    currentScenario = scenarioId;
+    auditLog = [];
+    currentProposal = null;
+    currentApproval = null;
+    currentExecution = null;
+    currentIncident = null;
+    nextEventNumber = 1;
+    cachedSnapshot = null;
+    notify();
+  }
+
   return {
     readIncident,
     listRecentDeploys,
@@ -553,7 +594,10 @@ export function createPolicyPilotRuntime(
     getPolicyState,
     approveCurrentProposal,
     executeApprovedRollback,
+    selectScenario,
   };
 }
 
 export const policyPilotRuntime: PolicyPilotRuntime = createPolicyPilotRuntime();
+
+export { NO_ACTION_REQUIRED };
