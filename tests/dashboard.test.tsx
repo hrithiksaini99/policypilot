@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Home from "@/app/page";
 import IncidentDashboard from "@/components/incident-dashboard";
@@ -165,9 +165,9 @@ describe("Home page heading order", () => {
     expect(screen.getByText("Human authority. Agent speed.")).not.toHaveRole("heading");
   });
 
-  it("shows Day 3 label instead of Day 2", () => {
+  it("shows Day 4 label", () => {
     render(<Home />);
-    expect(screen.getByText(/PolicyPilot \/ Day 3/i)).toBeInTheDocument();
+    expect(screen.getByText(/PolicyPilot \/ Day 4/i)).toBeInTheDocument();
   });
 
   it("includes the agent activity section below the top grid", () => {
@@ -295,5 +295,180 @@ describe("Healthy scenario dashboard", () => {
     expect(screen.getByText("System healthy. No agent activity recorded.")).toBeInTheDocument();
     expect(policyPilotRuntime.getSnapshot().incident.status).toBe("healthy");
     expect(policyPilotRuntime.getSnapshot().recentDeployments[0].deploymentId).toBe("DEP-9900");
+  });
+});
+
+describe("Day 4: Five semantic tool cards", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(document, "modelContext");
+    policyPilotRuntime.reset();
+  });
+
+  const setupRegistered = () => {
+    Object.defineProperty(document, "modelContext", {
+      configurable: true,
+      value: { registerTool: vi.fn().mockResolvedValue(undefined) },
+    });
+  };
+
+  it("renders five semantic cards (not chips) after registration", async () => {
+    setupRegistered();
+    render(<WebMCPStatus />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/5 tools registered/i)).toBeInTheDocument();
+    });
+
+    const cards = screen.getAllByRole("article");
+    expect(cards).toHaveLength(5);
+
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+  });
+
+  it("shows exact tool names and descriptions from WebMCP metadata", async () => {
+    setupRegistered();
+    render(<WebMCPStatus />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/5 tools registered/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("get_incident_context")).toBeInTheDocument();
+    expect(screen.getByText("Read the current PolicyPilot incident, service health signals, and investigation status.")).toBeInTheDocument();
+
+    expect(screen.getByText("list_recent_deploys")).toBeInTheDocument();
+    expect(screen.getByText("List recent payments-api deployments and identify the active suspect rollout related to the incident.")).toBeInTheDocument();
+
+    expect(screen.getByText("get_policy_state")).toBeInTheDocument();
+    expect(screen.getByText("Read the current PolicyPilot guardrail state and whether rollback execution is available.")).toBeInTheDocument();
+
+    expect(screen.getByText("propose_rollback")).toBeInTheDocument();
+    expect(screen.getByText("Prepare a non-executing rollback preview for the active suspect deployment; human approval is still required.")).toBeInTheDocument();
+
+    expect(screen.getByText("execute_approved_rollback")).toBeInTheDocument();
+    expect(screen.getByText("Execute the exact simulated rollback only when a human-approved approval ID and action fingerprint match the pending proposal.")).toBeInTheDocument();
+  });
+
+  it("shows READ badge for three read-only tools and MUTATE for two mutating tools", async () => {
+    setupRegistered();
+    render(<WebMCPStatus />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/5 tools registered/i)).toBeInTheDocument();
+    });
+
+    const readBadges = screen.getAllByText("READ");
+    expect(readBadges).toHaveLength(3);
+
+    const mutateBadges = screen.getAllByText("MUTATE");
+    expect(mutateBadges).toHaveLength(2);
+  });
+
+  it("shows availability: three read tools always Available in incident scenario", async () => {
+    setupRegistered();
+    policyPilotRuntime.selectScenario("incident");
+    render(<WebMCPStatus />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/5 tools registered/i)).toBeInTheDocument();
+    });
+
+    const cards = screen.getAllByRole("article");
+    cards.forEach((card) => {
+      if (card.textContent?.includes("get_incident_context") ||
+          card.textContent?.includes("list_recent_deploys") ||
+          card.textContent?.includes("get_policy_state")) {
+        expect(card).toHaveTextContent("Available");
+      }
+    });
+  });
+
+  it("shows availability: propose_rollback Available in incident, No action required in healthy", async () => {
+    setupRegistered();
+    policyPilotRuntime.selectScenario("incident");
+    render(<WebMCPStatus />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/5 tools registered/i)).toBeInTheDocument();
+    });
+
+    const proposeCard = screen.getByText("propose_rollback").closest("article");
+    expect(proposeCard).toHaveTextContent("Available");
+
+    policyPilotRuntime.selectScenario("healthy");
+    await waitFor(() => {
+      expect(screen.getByText("No action required")).toBeInTheDocument();
+    });
+  });
+
+  it("shows availability: execute_approved_rollback Blocked/Available/Completed in incident, always Blocked in healthy", async () => {
+    setupRegistered();
+    policyPilotRuntime.selectScenario("incident");
+    render(<WebMCPStatus />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/5 tools registered/i)).toBeInTheDocument();
+    });
+
+    let executeCard = screen.getByText("execute_approved_rollback").closest("article");
+    expect(executeCard).toHaveTextContent("Blocked");
+
+    policyPilotRuntime.proposeRollback({ deploymentId: "DEP-8821" });
+    policyPilotRuntime.approveCurrentProposal();
+
+    await waitFor(() => {
+      executeCard = screen.getByText("execute_approved_rollback").closest("article");
+      expect(executeCard).toHaveTextContent("Available");
+    });
+
+    const approval = prepareApprovedRollback(policyPilotRuntime);
+    policyPilotRuntime.executeApprovedRollback(approval);
+
+    await waitFor(() => {
+      executeCard = screen.getByText("execute_approved_rollback").closest("article");
+      expect(executeCard).toHaveTextContent("Completed");
+    });
+
+    policyPilotRuntime.selectScenario("healthy");
+    await waitFor(() => {
+      executeCard = screen.getByText("execute_approved_rollback").closest("article");
+      expect(executeCard).toHaveTextContent("Blocked");
+    });
+  });
+
+  it("shows full policy explanation in title attribute on availability", async () => {
+    setupRegistered();
+    policyPilotRuntime.selectScenario("incident");
+    render(<WebMCPStatus />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/5 tools registered/i)).toBeInTheDocument();
+    });
+
+    const policyCard = screen.getByText("get_policy_state").closest("article");
+    const availabilityElement = policyCard?.querySelector('[title]');
+    expect(availabilityElement).toBeInTheDocument();
+    expect(availabilityElement).toHaveAttribute("title", "Inspection and drafting allowed; execution requires human approval.");
+  });
+});
+
+describe("Day 4: Page title and selector integration", () => {
+  it("shows PolicyPilot / Day 4 title", () => {
+    render(<Home />);
+    expect(screen.getByText(/PolicyPilot \/ Day 4/i)).toBeInTheDocument();
+  });
+
+  it("renders ScenarioSelector in the intro section", () => {
+    render(<Home />);
+    expect(screen.getByText("Collaboration scenario")).toBeInTheDocument();
+    expect(screen.getByLabelText("Active incident")).toBeInTheDocument();
+    expect(screen.getByLabelText("Healthy system")).toBeInTheDocument();
+  });
+
+  it("ScenarioSelector calls selectScenario on change", () => {
+    const selectSpy = vi.spyOn(policyPilotRuntime, "selectScenario");
+    render(<Home />);
+    fireEvent.click(screen.getByLabelText("Healthy system"));
+    expect(selectSpy).toHaveBeenCalledWith("healthy");
   });
 });

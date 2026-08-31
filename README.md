@@ -6,6 +6,8 @@ On Day 2 it adds a live agent activity feed, a rollback proposal preview that re
 
 On Day 3 it adds a deterministic human approval workflow: an agent cannot execute the rollback until a person explicitly approves the exact proposal with its action fingerprint. The execution tool remains discoverable but is hard-rejected by the runtime before approval.
 
+On Day 4 it adds deterministic collaboration scenarios (`incident` and `healthy`) with a native keyboard-accessible scenario selector, and replaces the tool chip list with five semantic cards showing READ/MUTATE badges, textual availability labels, and full policy explanations — making the policy legible to both agents and humans.
+
 ## Architecture
 
 ```text
@@ -22,7 +24,7 @@ agent call from a WebMCP-enabled browser
 
 The seeded incident is the single source of truth: the dashboard UI and the WebMCP tools both read from `getIncidentContext()`. The adapter registers five structured tools through `document.modelContext` when available and degrades gracefully — the page stays fully usable in browsers without WebMCP.
 
-The shared singleton `policyPilotRuntime` from `@/lib/operations` is the sole source of activity state. Its public API is `readIncident()`, `listRecentDeploys()`, `proposeRollback(input)`, `getSnapshot()`, `subscribe(listener)`, `reset()`, `getPolicyState()`, `approveCurrentProposal()`, and `executeApprovedRollback(input)`. The UI subscribes with `useSyncExternalStore` — no polling, no second store.
+The shared singleton `policyPilotRuntime` from `@/lib/operations` is the sole source of activity state. Its public API is `readIncident()`, `listRecentDeploys()`, `proposeRollback(input)`, `getSnapshot()`, `subscribe(listener)`, `reset()`, `getPolicyState()`, `approveCurrentProposal()`, `executeApprovedRollback(input)`, and `selectScenario(scenarioId)`. The UI subscribes with `useSyncExternalStore` — no polling, no second store.
 
 ### Day 3 tools
 
@@ -51,6 +53,50 @@ Every tool invocation appends an immutable `PolicyPilotAuditEntry` to the runtim
 ### Reset semantics
 
 The `Reset demo` button calls `policyPilotRuntime.reset()`, which clears the audit log, clears any current proposal/approval/execution, resets the event counter, and restores the initial investigating incident. Tool registrations are unaffected — the five tools remain registered.
+
+## Day 4: Collaboration & Legibility
+
+### Scenarios
+
+Two deterministic scenarios, switched atomically via the **Collaboration scenario** radio group in the page intro:
+
+| Scenario | Incident | Status | Active deployment | Propose rollback | Execute rollback |
+|----------|----------|--------|-------------------|------------------|------------------|
+| `incident` (default) | `INC-1042`, SEV-2, investigating | Elevated 5xx errors after feature-flag rollout | `DEP-8821` (checkout-v2, suspect) | Creates proposal (`Available`) | `Blocked` → `Available` after approval → `Completed` |
+| `healthy` | `OPS-HEALTHY-0001`, INFO, healthy | payments-api operating normally | `DEP-9900` (checkout-v3, not suspect) | Rejects with `NO_ACTION_REQUIRED` | Permanently `Blocked` |
+
+Switching scenarios via `selectScenario()` atomically clears audit log, proposal, approval, execution, resets event IDs, and reloads the selected seed — **no audit entry is recorded for the switch itself**. Switching to the current scenario is a no-op (no notification, no state change).
+
+### Scenario selector
+
+A `<fieldset>` with two native radio inputs (`Active incident` / `Healthy system`) inside the intro section. Keyboard navigable (arrow keys), announces changes via `aria-live="polite"`, focus-visible styles matching existing button rings. Calls `policyPilotRuntime.selectScenario(id)` on change.
+
+### Five semantic tool cards
+
+The WebMCP Status panel now shows five cards (replacing the chip list) after registration succeeds. Each card displays:
+
+- **Name** — exact tool name from WebMCP metadata
+- **Description** — exact tool description from WebMCP metadata
+- **Badge** — `READ` (cyan) for `readOnlyHint: true` tools; `MUTATE` (amber) for `readOnlyHint: false` tools
+- **Availability** — textual label with colored dot (not color-only):
+  - `get_incident_context`, `list_recent_deploys`, `get_policy_state`: always `Available`
+  - `propose_rollback`: `Available` in incident; `No action required` in healthy
+  - `execute_approved_rollback`: `Blocked` / `Available` / `Completed` by policy state in incident; always `Blocked` in healthy
+- **Policy reason** — full `policy.explanation` in `title` attribute (tooltip), truncated in card
+
+Cards use semantic `<article>` elements in a responsive grid: two columns on `lg:`, single column below.
+
+### Policy approval — healthy scenario
+
+In `healthy` scenario, the Policy Approval panel shows only the policy explanation ("System healthy; no mutation justified. Rollback not permitted.") — no proposal, no approval button, no fingerprint.
+
+### Incident dashboard — healthy status badge
+
+In `healthy` scenario, the incident status badge uses emerald styling with "Healthy" text and the two seeded health signals.
+
+### Agent activity — healthy empty state
+
+In `healthy` scenario with empty audit log, shows "System healthy. No agent activity recorded." instead of the connected-agents prompt. Reset button remains functional (stays in current scenario).
 
 ## Prerequisites
 
@@ -89,18 +135,29 @@ npm run lint
 npm run build
 ```
 
-## Testing the WebMCP tools (Day 3)
+## Testing the WebMCP tools (Day 4)
 
 1. **ChatGPT in-app browser (preferred):** open the running local URL (`http://localhost:3000`) through ChatGPT's in-app browser.
 2. **Chrome alternative:** use Chrome 149 or newer with `chrome://flags/#enable-webmcp-testing` enabled, then restart the browser.
 
-### Judge prompt
+### Judge prompt — Incident scenario (Day 3 behavior)
 
 Send the agent this prompt:
 
 > Inspect the incident and policy, propose the safe rollback, try execution before approval, then approve the exact displayed rollback and execute it with the returned approval ID and action fingerprint.
 
 **Expected result:** pre-approval execution rejects/audits with `APPROVAL_REQUIRED`; human dialog binds `DEP-8821`, `checkout-v2 → checkout-v1`, `APR-INC-1042-DEP-8821`, and the fingerprint `fnv1a-32:rollback-inc-1042-dep-8821-checkout-v2-checkout-v1`; only exact execution returns `EXE-INC-1042-DEP-8821`, changes health to `mitigated`, and creates a completed audit event. Repeat execution rejects with `ROLLBACK_ALREADY_EXECUTED`. Reset restores original incident/policy, empty audit/approval/execution, and five retained registrations.
+
+### Judge steps — Healthy scenario (Day 4)
+
+1. **Open page** — verify title reads `PolicyPilot / Day 4`, incident shows `OPS-HEALTHY-0001` with emerald `Healthy` badge and two signals.
+2. **Scenario selector** — use keyboard (Tab to focus, arrow keys to switch) to select `Healthy system`; verify live region announces change, incident updates to healthy seed, WebMCP cards update availability.
+3. **WebMCP cards** — verify five cards with READ/MUTATE badges; three read tools show `Available`; `propose_rollback` shows `No action required`; `execute_approved_rollback` shows `Blocked`; hover availability for full policy explanation tooltip.
+4. **Agent proposes rollback** — agent calls `propose_rollback({ "deploymentId": "DEP-9900" })`; verify audit logs `NO_ACTION_REQUIRED` error, no proposal created, cards unchanged.
+5. **Agent tries execution** — agent calls `execute_approved_rollback({ "approvalId": "APR-OPS-HEALTHY-0001-DEP-9900", "actionHash": "fnv1a-32:rollback-ops-healthy-0001-dep-9900-checkout-v2-checkout-v1" })`; verify audit logs `APPROVAL_REQUIRED` error, execution remains `Blocked`.
+6. **Switch back to incident** — use keyboard to select `Active incident`; verify incident reverts to `INC-1042` investigating, cards show `Available` for propose, `Blocked` for execution.
+7. **Reset in healthy** — switch to `Healthy system`, click `Reset demo`; verify healthy state preserved (incident `OPS-HEALTHY-0001`, deployment `DEP-9900`, empty audit).
+8. **Mobile layout** — narrow viewport; verify cards stack in single column, selector remains usable, no horizontal overflow.
 
 ## Day 1 boundary
 
