@@ -15,19 +15,21 @@ export interface HealthyIncidentContext {
   signals: readonly string[];
 }
 
+export type DeploymentStatus = "active" | "superseded";
+
 export interface HealthyDeployment {
   deploymentId: string;
   service: string;
   version: string;
   previousVersion: string;
   deployedAt: string;
-  status: "active";
+  status: DeploymentStatus;
   suspect: false;
 }
 
 const seededHealthySignals = Object.freeze([
-  "All service health indicators nominal",
-  "No active incidents or deployments requiring action",
+  "5xx rate stable at 0.4%",
+  "Latency p95 stable at 220ms",
 ]) as HealthyIncidentContext["signals"];
 
 export const seededHealthyIncident: HealthyIncidentContext = Object.freeze({
@@ -35,20 +37,31 @@ export const seededHealthyIncident: HealthyIncidentContext = Object.freeze({
   service: "payments-api",
   severity: "INFO",
   status: "healthy",
-  summary: "System operating normally; no action required",
-  startedAt: "2026-08-26T08:30:00.000Z",
+  summary: "payments-api operating normally",
+  startedAt: "2026-08-29T09:00:00.000Z",
   signals: seededHealthySignals,
 });
 
-export const seededHealthyDeployment: HealthyDeployment = Object.freeze({
-  deploymentId: "DEP-9900",
-  service: "payments-api",
-  version: "checkout-v2",
-  previousVersion: "checkout-v1",
-  deployedAt: "2026-08-26T08:24:00.000Z",
-  status: "active",
-  suspect: false,
-});
+export const seededHealthyDeployments: readonly HealthyDeployment[] = Object.freeze([
+  Object.freeze({
+    deploymentId: "DEP-9900",
+    service: "payments-api",
+    version: "checkout-v3",
+    previousVersion: "checkout-v2",
+    deployedAt: "2026-08-29T08:00:00.000Z",
+    status: "active",
+    suspect: false,
+  }) satisfies HealthyDeployment,
+  Object.freeze({
+    deploymentId: "DEP-9890",
+    service: "payments-api",
+    version: "checkout-v2",
+    previousVersion: "checkout-v1",
+    deployedAt: "2026-08-28T16:10:00.000Z",
+    status: "active",
+    suspect: false,
+  }) satisfies HealthyDeployment,
+]);
 
 export function getHealthyIncidentContext(): HealthyIncidentContext {
   return {
@@ -58,7 +71,7 @@ export function getHealthyIncidentContext(): HealthyIncidentContext {
 }
 
 export function getHealthyDeployments(): readonly HealthyDeployment[] {
-  return [seededHealthyDeployment];
+  return seededHealthyDeployments.map((d) => ({ ...d }));
 }
 
 export const NO_ACTION_REQUIRED = "NO_ACTION_REQUIRED" as const;

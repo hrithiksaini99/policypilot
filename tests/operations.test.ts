@@ -663,8 +663,23 @@ describe("scenario-aware runtime", () => {
     expect(runtime.getSnapshot().incident.incidentId).toBe("OPS-HEALTHY-0001");
     expect(runtime.getSnapshot().incident.severity).toBe("INFO");
     expect(runtime.getSnapshot().incident.status).toBe("healthy");
-    expect(runtime.getSnapshot().recentDeployments[0].deploymentId).toBe("DEP-9900");
-    expect(runtime.getSnapshot().recentDeployments[0].suspect).toBe(false);
+    expect(runtime.getSnapshot().recentDeployments).toHaveLength(2);
+    expect(runtime.getSnapshot().recentDeployments[0]).toMatchObject({
+      deploymentId: "DEP-9900",
+      version: "checkout-v3",
+      previousVersion: "checkout-v2",
+      deployedAt: "2026-08-29T08:00:00.000Z",
+      status: "active",
+      suspect: false,
+    });
+    expect(runtime.getSnapshot().recentDeployments[1]).toMatchObject({
+      deploymentId: "DEP-9890",
+      version: "checkout-v2",
+      previousVersion: "checkout-v1",
+      deployedAt: "2026-08-28T16:10:00.000Z",
+      status: "active",
+      suspect: false,
+    });
   });
 
   it("selectScenario switches to healthy and clears state", () => {
@@ -677,7 +692,10 @@ describe("scenario-aware runtime", () => {
     expect(runtime.getSnapshot()).toMatchObject({
       scenarioId: "healthy",
       incident: { incidentId: "OPS-HEALTHY-0001", severity: "INFO", status: "healthy" },
-      recentDeployments: [{ deploymentId: "DEP-9900", suspect: false }],
+      recentDeployments: [
+        { deploymentId: "DEP-9900", version: "checkout-v3", previousVersion: "checkout-v2", suspect: false },
+        { deploymentId: "DEP-9890", version: "checkout-v2", previousVersion: "checkout-v1", suspect: false },
+      ],
       currentProposal: null,
       currentApproval: null,
       currentExecution: null,
@@ -816,5 +834,24 @@ describe("scenario-aware runtime", () => {
 
     expect(caught).toBeInstanceOf(PolicyPilotInputError);
     expect((caught as PolicyPilotInputError).code).toBe("INVALID_APPROVAL_INPUT");
+  });
+
+  it("getPolicyState in healthy scenario returns read/blocked with healthy explanation", () => {
+    const runtime = createPolicyPilotRuntime({ initialScenario: "healthy" });
+    const state = runtime.getPolicyState();
+
+    expect(state.phase).toBe("read");
+    expect(state.executionAvailability).toBe("blocked");
+    expect(state.inspectionAllowed).toBe(true);
+    expect(state.draftAllowed).toBe(true);
+    expect(state.executionRequiresHumanApproval).toBe(true);
+    expect(state.explanation).toBe("System healthy; no mutation justified. Rollback not permitted.");
+
+    const snapshot = runtime.getSnapshot();
+    const policyStateEntries = snapshot.auditLog.filter(
+      (e): e is PolicyPilotAuditSuccessEntry => e.toolName === "get_policy_state" && e.status === "success"
+    );
+    expect(policyStateEntries).toHaveLength(1);
+    expect(policyStateEntries[0].result).toEqual(state);
   });
 });

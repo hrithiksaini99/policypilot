@@ -1,3 +1,5 @@
+import { getHealthyIncidentContext } from "@/lib/scenario";
+
 export type IncidentStatus = "investigating" | "mitigated" | "healthy";
 
 export interface IncidentContext {
@@ -35,17 +37,15 @@ export function getIncidentContext(): IncidentContext {
 
 export function getIncidentContextForScenario(scenario: "incident" | "healthy"): IncidentContext {
   if (scenario === "healthy") {
+    const healthy = getHealthyIncidentContext();
     return {
-      incidentId: "OPS-HEALTHY-0001",
-      service: "payments-api",
-      severity: "INFO",
-      status: "healthy",
-      summary: "System operating normally; no action required",
-      startedAt: "2026-08-26T08:30:00.000Z",
-      signals: Object.freeze([
-        "All service health indicators nominal",
-        "No active incidents or deployments requiring action",
-      ]),
+      incidentId: healthy.incidentId,
+      service: healthy.service,
+      severity: healthy.severity,
+      status: healthy.status,
+      summary: healthy.summary,
+      startedAt: healthy.startedAt,
+      signals: healthy.signals,
     };
   }
   return getIncidentContext();

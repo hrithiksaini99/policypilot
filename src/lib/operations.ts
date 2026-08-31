@@ -461,6 +461,9 @@ export function createPolicyPilotRuntime(
   }
 
   function buildPolicyStateInternal(): PolicyState {
+    if (currentScenario === "healthy") {
+      return buildPolicyState("read", "blocked", "System healthy; no mutation justified. Rollback not permitted.");
+    }
     if (currentExecution) {
       return buildPolicyState("executed", "completed", "Rollback has been executed; incident is mitigated.");
     }
