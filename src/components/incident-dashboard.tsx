@@ -5,7 +5,31 @@ function formatStartedAt(startedAt: string): string {
   return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
 }
 
+function getStatusStyles(status: IncidentContext["status"]) {
+  if (status === "healthy") {
+    return {
+      badge: "rounded-full bg-emerald-500/15 px-3 py-1 font-mono text-xs font-semibold tracking-wide text-emerald-300 ring-1 ring-emerald-500/40",
+      dot: "size-2 rounded-full bg-emerald-400",
+      signalBorder: "border-l-2 border-emerald-500/70 bg-black/30 px-3 py-2 text-sm leading-6 text-zinc-200",
+    };
+  }
+  if (status === "mitigated") {
+    return {
+      badge: "rounded-full bg-emerald-500/15 px-3 py-1 font-mono text-xs font-semibold tracking-wide text-emerald-300 ring-1 ring-emerald-500/40",
+      dot: "size-2 rounded-full bg-emerald-400",
+      signalBorder: "border-l-2 border-emerald-500/70 bg-black/30 px-3 py-2 text-sm leading-6 text-zinc-200",
+    };
+  }
+  return {
+    badge: "rounded-full bg-amber-500/15 px-3 py-1 font-mono text-xs font-semibold tracking-wide text-amber-300 ring-1 ring-amber-500/40",
+    dot: "size-2 rounded-full bg-amber-400",
+    signalBorder: "border-l-2 border-amber-500/70 bg-black/30 px-3 py-2 text-sm leading-6 text-zinc-200",
+  };
+}
+
 export default function IncidentDashboard({ incident }: { incident: IncidentContext }) {
+  const styles = getStatusStyles(incident.status);
+
   return (
     <section
       aria-label="Incident context"
@@ -15,7 +39,7 @@ export default function IncidentDashboard({ incident }: { incident: IncidentCont
         <p className="font-mono text-xs uppercase tracking-[0.25em] text-zinc-400">
           Incident context
         </p>
-        <span className="rounded-full bg-amber-500/15 px-3 py-1 font-mono text-xs font-semibold tracking-wide text-amber-300 ring-1 ring-amber-500/40">
+        <span className={styles.badge}>
           {incident.severity}
         </span>
       </div>
@@ -35,9 +59,13 @@ export default function IncidentDashboard({ incident }: { incident: IncidentCont
         </div>
         <div className="min-w-0">
           <dt className="font-mono text-xs uppercase tracking-wider text-zinc-400">Status</dt>
-          <dd className="mt-1 flex items-center gap-2 text-sm font-medium capitalize text-zinc-100">
-            <span aria-hidden="true" className="size-2 rounded-full bg-amber-400" />
-            {incident.status}
+          <dd className="mt-1 flex items-center gap-2 text-sm font-medium text-zinc-100">
+            <span aria-hidden="true" className={styles.dot} />
+            {incident.status === "healthy" ? (
+              <span className={styles.badge}>Healthy</span>
+            ) : (
+              incident.status
+            )}
           </dd>
         </div>
         <div className="min-w-0 col-span-2 min-[420px]:col-span-3 lg:col-span-1">
@@ -54,7 +82,7 @@ export default function IncidentDashboard({ incident }: { incident: IncidentCont
           {incident.signals.map((signal) => (
             <li
               key={signal}
-              className="border-l-2 border-amber-500/70 bg-black/30 px-3 py-2 text-sm leading-6 text-zinc-200"
+              className={styles.signalBorder}
             >
               {signal}
             </li>

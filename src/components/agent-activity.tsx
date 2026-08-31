@@ -176,8 +176,9 @@ export default function AgentActivity() {
     getSnapshot,
   );
 
-  const { auditLog, currentProposal, currentApproval, currentExecution } = snapshot;
+  const { auditLog, currentProposal, currentApproval, currentExecution, scenarioId } = snapshot;
   const reversedAuditLog = [...auditLog].reverse();
+  const isHealthy = scenarioId === "healthy";
 
   return (
     <section aria-label="Agent activity" className="flex min-w-0 flex-col gap-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5 sm:p-7">
@@ -193,14 +194,20 @@ export default function AgentActivity() {
 
       {reversedAuditLog.length === 0 && currentProposal === null && currentApproval === null && currentExecution === null && (
         <div className="flex flex-col gap-3 text-sm leading-6 text-zinc-300">
-          <p>
-            Connected agents can inspect context, list deploys, and prepare—but not execute—a rollback.
-          </p>
-          <p className="text-xs text-zinc-400">
-            Invoke <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-cyan-300 ring-1 ring-cyan-500/30">get_incident_context</code>,
-            <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-cyan-300 ring-1 ring-cyan-500/30">list_recent_deploys</code>, or
-            <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-cyan-300 ring-1 ring-cyan-500/30">propose_rollback</code> to populate this feed.
-          </p>
+          {isHealthy ? (
+            <p>System healthy. No agent activity recorded.</p>
+          ) : (
+            <>
+              <p>
+                Connected agents can inspect context, list deploys, and prepare—but not execute—a rollback.
+              </p>
+              <p className="text-xs text-zinc-400">
+                Invoke <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-cyan-300 ring-1 ring-cyan-500/30">get_incident_context</code>,
+                <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-cyan-300 ring-1 ring-cyan-500/30">list_recent_deploys</code>, or
+                <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-cyan-300 ring-1 ring-cyan-500/30">propose_rollback</code> to populate this feed.
+              </p>
+            </>
+          )}
         </div>
       )}
 

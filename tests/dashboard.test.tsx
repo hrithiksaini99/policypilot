@@ -7,6 +7,7 @@ import AgentActivity from "@/components/agent-activity";
 import LiveIncidentDashboard from "@/components/live-incident-dashboard";
 import PolicyApproval from "@/components/policy-approval";
 import { getIncidentContext } from "@/lib/incident";
+import { getHealthyIncidentContext } from "@/lib/scenario";
 import { policyPilotRuntime } from "@/lib/operations";
 
 afterEach(cleanup);
@@ -236,5 +237,63 @@ describe("PolicyApproval", () => {
 
     expect(await screen.findByText(/execution available/i)).toBeInTheDocument();
     expect(policyPilotRuntime.getSnapshot().currentExecution).toBeNull();
+  });
+});
+
+describe("Healthy scenario dashboard", () => {
+  afterEach(() => {
+    policyPilotRuntime.reset();
+  });
+
+  it("renders IncidentDashboard with healthy incident (emerald badge, correct signals)", () => {
+    const healthyIncident = getHealthyIncidentContext();
+    render(<IncidentDashboard incident={healthyIncident} />);
+
+    expect(screen.getByRole("heading", { name: /payments-api operating normally/i })).toBeInTheDocument();
+    expect(screen.getByText("OPS-HEALTHY-0001")).toBeInTheDocument();
+    expect(screen.getByText("payments-api")).toBeInTheDocument();
+    expect(screen.getByText("INFO")).toBeInTheDocument();
+    expect(screen.getByText("Healthy")).toBeInTheDocument();
+
+    const statusBadge = screen.getByText("Healthy").closest("span");
+    expect(statusBadge).toHaveClass("bg-emerald-500/15");
+    expect(statusBadge).toHaveClass("text-emerald-300");
+    expect(statusBadge).toHaveClass("ring-emerald-500/40");
+
+    const signalItems = screen.getAllByRole("listitem");
+    expect(signalItems).toHaveLength(2);
+    expect(screen.getByText("5xx rate stable at 0.4%")).toBeInTheDocument();
+    expect(screen.getByText("Latency p95 stable at 220ms")).toBeInTheDocument();
+  });
+
+  it("PolicyApproval shows only policy explanation in healthy scenario (no approval UI)", () => {
+    policyPilotRuntime.selectScenario("healthy");
+    render(<PolicyApproval />);
+
+    expect(screen.getByText("System healthy; no mutation justified. Rollback not permitted.")).toBeInTheDocument();
+    expect(screen.queryByText(/human approval required/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/action fingerprint/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /review and approve rollback/i })).not.toBeInTheDocument();
+  });
+
+  it("AgentActivity shows healthy empty state message", () => {
+    policyPilotRuntime.selectScenario("healthy");
+    render(<AgentActivity />);
+
+    expect(screen.getByText("System healthy. No agent activity recorded.")).toBeInTheDocument();
+    expect(screen.queryByText(/connected agents can inspect context/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /reset demo/i })).toBeInTheDocument();
+  });
+
+  it("reset in healthy scenario preserves healthy state", () => {
+    policyPilotRuntime.selectScenario("healthy");
+    render(<AgentActivity />);
+
+    const resetButton = screen.getByRole("button", { name: /reset demo/i });
+    resetButton.click();
+
+    expect(screen.getByText("System healthy. No agent activity recorded.")).toBeInTheDocument();
+    expect(policyPilotRuntime.getSnapshot().incident.status).toBe("healthy");
+    expect(policyPilotRuntime.getSnapshot().recentDeployments[0].deploymentId).toBe("DEP-9900");
   });
 });

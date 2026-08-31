@@ -175,13 +175,21 @@ export default function PolicyApproval() {
     getSnapshot,
   );
 
-  const { currentProposal, currentApproval, currentExecution, policy } = snapshot;
+  const { currentProposal, currentApproval, currentExecution, policy, scenarioId } = snapshot;
   const [showDialog, setShowDialog] = useState(false);
 
   const handleApprove = () => {
     policyPilotRuntime.approveCurrentProposal();
     setShowDialog(false);
   };
+
+  if (scenarioId === "healthy") {
+    return (
+      <>
+        <PolicyExplanation explanation={policy.explanation} />
+      </>
+    );
+  }
 
   if (currentExecution) {
     return (
