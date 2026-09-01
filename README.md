@@ -52,7 +52,7 @@ Every tool invocation appends an immutable `PolicyPilotAuditEntry` to the runtim
 
 ### Reset semantics
 
-The `Reset demo` button calls `policyPilotRuntime.reset()`, which clears the audit log, clears any current proposal/approval/execution, resets the event counter, and restores the initial investigating incident. Tool registrations are unaffected — the five tools remain registered.
+The `Reset demo` button calls `policyPilotRuntime.reset()`, which clears the audit log, clears any current proposal/approval/execution, resets the event counter, and reloads the incident seed for the **currently selected scenario**. Tool registrations are unaffected — the five tools remain registered. Reset does not change the scenario.
 
 ## Day 4: Collaboration & Legibility
 
@@ -150,8 +150,8 @@ Send the agent this prompt:
 
 ### Judge steps — Healthy scenario (Day 4)
 
-1. **Open page** — verify title reads `PolicyPilot / Day 4`, incident shows `OPS-HEALTHY-0001` with emerald `Healthy` badge and two signals.
-2. **Scenario selector** — use keyboard (Tab to focus, arrow keys to switch) to select `Healthy system`; verify live region announces change, incident updates to healthy seed, WebMCP cards update availability.
+1. **Open page** — verify title reads `PolicyPilot / Day 4`, incident shows `INC-1042` investigating with amber `SEV-2` badge and three signals (default `incident` scenario).
+2. **Scenario selector** — use keyboard (Tab to focus, arrow keys to switch) to select `Healthy system`; verify live region announces change, incident updates to `OPS-HEALTHY-0001` with emerald `Healthy` badge and two signals, WebMCP cards update availability.
 3. **WebMCP cards** — verify five cards with READ/MUTATE badges; three read tools show `Available`; `propose_rollback` shows `No action required`; `execute_approved_rollback` shows `Blocked`; hover availability for full policy explanation tooltip.
 4. **Agent proposes rollback** — agent calls `propose_rollback({ "deploymentId": "DEP-9900" })`; verify audit logs `NO_ACTION_REQUIRED` error, no proposal created, cards unchanged.
 5. **Agent tries execution** — agent calls `execute_approved_rollback({ "approvalId": "APR-OPS-HEALTHY-0001-DEP-9900", "actionHash": "fnv1a-32:rollback-ops-healthy-0001-dep-9900-checkout-v2-checkout-v1" })`; verify audit logs `APPROVAL_REQUIRED` error, execution remains `Blocked`.

@@ -154,6 +154,9 @@ function ToolCard({
         </div>
       </div>
       <p className="text-xs text-zinc-400 line-clamp-2">{descriptor.description}</p>
+      <div className="text-xs text-zinc-400 truncate" title={policyExplanation}>
+        {policyExplanation}
+      </div>
       <div
         className={getAvailabilityStyles(availability)}
         title={policyExplanation}
@@ -257,15 +260,15 @@ export default function WebMCPStatus() {
       <p className="font-mono text-xs uppercase tracking-[0.25em] text-zinc-400">Agent tool readiness</p>
       <div role="status" className="flex flex-col gap-2">
         <StatusLine viewState={viewState}>5 tools registered</StatusLine>
-        <div className="grid gap-3 lg:grid-cols-2" aria-label="Registered tools">
-          {cards}
-        </div>
-        <p className="text-xs leading-5 text-zinc-400">
-          Connected agents can now read the live incident context, list recent deployments, check policy state,
-          prepare rollback proposals, and attempt execution from this page. The execution tool is discoverable
-          but rejects every call until a human approves the exact proposal with its action fingerprint.
-        </p>
       </div>
+      <div className="grid gap-3 lg:grid-cols-2" aria-label="Registered tools">
+        {cards}
+      </div>
+      <p className="text-xs leading-5 text-zinc-400">
+        Connected agents can now read the live incident context, list recent deployments, check policy state,
+        prepare rollback proposals, and attempt execution from this page. The execution tool is discoverable
+        but rejects every call until a human approves the exact proposal with its action fingerprint.
+      </p>
     </section>
   );
 }

@@ -301,6 +301,7 @@ describe("Healthy scenario dashboard", () => {
 describe("Day 4: Five semantic tool cards", () => {
   afterEach(() => {
     Reflect.deleteProperty(document, "modelContext");
+    policyPilotRuntime.selectScenario("incident");
     policyPilotRuntime.reset();
   });
 
@@ -323,6 +324,13 @@ describe("Day 4: Five semantic tool cards", () => {
     expect(cards).toHaveLength(5);
 
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
+
+    cards.forEach((card) => {
+      const policyReason = card.querySelector("div[title]");
+      expect(policyReason).not.toBeNull();
+      expect(policyReason).toHaveAttribute("title");
+      expect(policyReason?.textContent).toBeTruthy();
+    });
   });
 
   it("shows exact tool names and descriptions from WebMCP metadata", async () => {
